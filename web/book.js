@@ -9,6 +9,7 @@
   let pin = null;          // {lat, lng}
   let picker;
   let availTimer = 0, availSeq = 0;
+  let loading = false, loadFailed = false; // times for the current area aren't ready yet
 
   const label = (s) => slotLabel(s, config.slot_minutes);
 
@@ -32,8 +33,8 @@
     picker = pinPicker($("map"), {
       onChange: (p) => {
         pin = p;
-        $("pin-state").textContent = "Your home is marked. Drag the pin to adjust it.";
-        $("pin-state").classList.add("ok");
+        $("pin-state").textContent = inJordan(p) ? "Your home is marked. Drag the pin to adjust it." : "That pin is outside Jordan. Please tap your home on the map.";
+        $("pin-state").classList.toggle("ok", inJordan(p));
         $("pin-err").hidden = true;
       },
     });
@@ -67,14 +68,20 @@
   // ---------- Times ----------
   function loadAvailability() {
     clearTimeout(availTimer);
+    // Drop the old area's times straight away, so nothing is booked from a stale list.
+    slots = [];
+    loading = !!currentArea();
+    loadFailed = false;
+    renderSlots();
     availTimer = setTimeout(async () => {
       const a = currentArea();
-      if (!a) { slots = []; renderSlots(); return; }
+      if (!a) { loading = false; renderSlots(); return; }
       const seq = ++availSeq;
       // Only the area's own car counts; the pin is for the driver, not for picking times.
       const { data, error } = await sb.rpc("public_availability", { p_area: a.id });
       if (seq !== availSeq) return;
-      if (error) { console.error(error); return; }
+      loading = false;
+      if (error) { console.error(error); loadFailed = true; renderSlots(); return; }
       slots = data || [];
       if (chosen && !slots.some((s) => s.slot === chosen)) chosen = null;
       renderSlots();
@@ -84,18 +91,26 @@
     const box = $("slots");
     if (!currentArea()) {
       box.innerHTML = `<div class="slots-empty" style="grid-column:1/-1">Choose your area first to see the free times.</div>`;
+      $("submit").textContent = submitText();
+      return;
+    }
+    if (loading || loadFailed) {
+      box.innerHTML = loading ? `<div class="slots-empty" style="grid-column:1/-1">Loading the free times…</div>`
+        : `<div class="slots-empty" style="grid-column:1/-1">We couldn't load the times. <button type="button" class="ghost" id="slots-retry">Try again</button></div>`;
+      if ($("slots-retry")) $("slots-retry").onclick = loadAvailability;
       return;
     }
     const anyFree = slots.some((s) => s.available);
     // Taken times stay tappable: the family either picks a free time (booked) or keeps the taken one (waitlist), never both.
     const free = nearestFree(chosen);
+    const hadFocus = box.contains(document.activeElement);
     box.innerHTML = (anyFree ? "" : `<div class="slots-empty" style="grid-column:1/-1">Every time is taken in your area. Choose the time you'd like and we'll put you on the waitlist.</div>`) +
-      slots.map((s) => `<button type="button" class="slot${s.available ? "" : " taken"}" data-slot="${s.slot}" aria-pressed="${chosen === s.slot}">
+      slots.map((s) => `<button type="button" class="slot${s.available ? "" : " taken"}" data-slot="${esc(s.slot)}" aria-pressed="${chosen === s.slot}">
           <span class="t">${esc(label(s.slot))}</span><small>${s.available ? "Available" : "Taken · waitlist"}</small></button>`).join("") +
       (chosen && !isFree(chosen) ? `<div class="wait-note" style="grid-column:1/-1">
           <p><strong>${esc(label(chosen))} is taken.</strong>${free.length ? " These times are still free. Tap one to book it instead:" : ""}</p>
-          ${free.length ? `<div class="sugg">${free.map((s) => `<button type="button" class="slot" data-slot="${s}"><span class="t">${esc(label(s))}</span><small>Available</small></button>`).join("")}</div>` : ""}
-          <p>Or keep ${esc(label(chosen))} and send your details to join the waitlist. We'll call you to find you a time. Your visit isn't confirmed until we call.</p>
+          ${free.length ? `<div class="sugg">${free.map((s) => `<button type="button" class="slot" data-slot="${esc(s)}"><span class="t">${esc(label(s))}</span><small>Available</small></button>`).join("")}</div>` : ""}
+          <p>${free.length ? "Or keep" : "Keep"} ${esc(label(chosen))} and send your details to join the waitlist. We'll call you to find you a time. Your visit isn't confirmed until we call.</p>
         </div>` : "");
     box.querySelectorAll(".slot").forEach((b) => (b.onclick = () => {
       chosen = b.dataset.slot;
@@ -103,7 +118,10 @@
       renderSlots();
     }));
     $("submit").textContent = submitText();
+    // Rebuilding the buttons loses keyboard focus; put it back on the chosen time.
+    if (hadFocus && chosen) box.querySelector(`.slots > .slot[data-slot="${chosen}"]`)?.focus();
   }
+  const inJordan = (p) => p.lat > 29 && p.lat < 33.5 && p.lng > 34.8 && p.lng < 39.5;
   const isFree = (s) => slots.some((x) => x.slot === s && x.available);
   // Up to 3 free times closest to the one they wanted.
   const nearestFree = (s) => !s ? [] : slots.filter((x) => x.available).map((x) => x.slot)
@@ -130,8 +148,10 @@
     let ok = true, first = null;
     const mark = (el, bad) => { el.classList.toggle("invalid", bad); if (bad) { ok = false; first = first || el; } };
     mark($("area"), !$("area").value);
-    $("pin-err").hidden = !!pin;
-    if (!pin) { $("map").classList.add("invalid"); ok = false; first = first || $("map"); }
+    const pinBad = !pin || !inJordan(pin);
+    $("pin-err").textContent = pin && !inJordan(pin) ? "That pin is outside Jordan. Please tap your home on the map." : "Please place a pin on your home.";
+    $("pin-err").hidden = !pinBad;
+    if (pinBad) { $("map").classList.add("invalid"); ok = false; first = first || $("map"); }
     const linkBad = !looksLikeMaps($("maps").value.trim());
     mark($("maps"), linkBad);
     $("maps-err").hidden = !linkBad;
@@ -139,7 +159,8 @@
     const phoneBad = !normPhone($("phone").value);
     mark($("phone"), phoneBad);
     $("phone-err").hidden = !phoneBad;
-    if (!chosen) { ok = false; $("slot-err").hidden = false; first = first || $("slots"); }
+    if (loading || loadFailed) { ok = false; $("slot-err").textContent = "Please wait for the times to load."; $("slot-err").hidden = false; first = first || $("slots"); }
+    else if (!chosen) { ok = false; $("slot-err").textContent = "Please choose a time."; $("slot-err").hidden = false; first = first || $("slots"); }
     const payBad = !document.querySelector("input[name=pay]:checked");
     $("pay-err").hidden = !payBad;
     if (payBad) { ok = false; first = first || document.querySelector(".pay"); }
@@ -155,13 +176,15 @@
     slot: "Please choose a time.",
     pin: "Please place a pin on your home and paste its Google Maps link.",
     payment: "Please choose how you will donate.",
-    duplicate: "This mobile number already has a booking. Contact us if you need to change it.",
+    duplicate: "This mobile number already has a booking or a waitlist place. Contact us if you need to change it.",
+    long: "Some of your answers are too long. Please shorten them and try again.",
+    busy: "We're getting a lot of bookings right now. Please try again in a few minutes.",
   };
 
   async function book(slot, waitlist) {
     const btn = $("submit");
     btn.disabled = true;
-    btn.textContent = "Reserving…";
+    btn.textContent = waitlist ? "Joining…" : "Reserving…";
     showError("");
     const { data, error } = await sb.rpc("public_book", {
       p_name: $("name").value, p_phone: normPhone($("phone").value), p_email: $("email").value,
@@ -215,7 +238,7 @@
       <h2>That Time Has Filled Up</h2>
       <p>Someone booked ${esc(label(slot))} just before you. Choose one option:</p>
       ${suggestions.length ? `<p>Book one of these free times:</p>
-        <div class="sugg">${suggestions.map((s) => `<button type="button" class="slot" data-s="${s}"><span class="t">${esc(label(s))}</span></button>`).join("")}</div>` : ""}
+        <div class="sugg">${suggestions.map((s) => `<button type="button" class="slot" data-s="${esc(s)}"><span class="t">${esc(label(s))}</span><small>Available</small></button>`).join("")}</div>` : ""}
       <button type="button" class="ghost" id="wl">Join the waitlist for ${esc(label(slot))}</button>`;
     const retry = async (s, wl) => {
       r.hidden = true;

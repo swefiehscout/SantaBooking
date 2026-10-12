@@ -51,6 +51,6 @@ The owner account `santa@swefieh-orthodox-scout.com` signs in by typing the full
 2. If they want a time that's taken, they can pick one of the nearest free times or join the waitlist for the time they wanted. Each family gets one or the other.
 3. The team assigns waitlist families from Admin → Waitlist, which lists every free car and time with its distance from the family.
 
-Run `supabase/home_car_only.sql` once in the SQL Editor to switch an existing database to this.
+On an existing database, run `supabase/home_car_only.sql` and then `supabase/audit_fixes.sql` once in the SQL Editor. The second one adds length limits, caps the website at 40 bookings in any 10 minutes, and stops signed-in accounts that aren't on the team from calling internal functions. Keep "Allow new users to sign up" turned off in Supabase.
 
 Everything (hours, cars, zones, capacity, blocked times) can be edited in Admin → Setup and on the Board.

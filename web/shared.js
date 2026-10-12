@@ -4,7 +4,7 @@
   // Run on sample data in this browser (demo.js) until real Supabase keys are in config.js,
   // or when an owner presses "Demo mode" on the admin page (for presentations; real data is never touched).
   let asked = false;
-  try { asked = /\/admin(\.html)?$/.test(location.pathname) && sessionStorage.getItem("santa-demo") === "1"; } catch (e) {}
+  try { asked = /\/admin(\.html|\/)?$/.test(location.pathname) && sessionStorage.getItem("santa-demo") === "1"; } catch (e) {}
   const demo = (/YOUR-PROJECT/.test(cfg.SUPABASE_URL) || asked) && window.SantaDemo;
   const sb = demo ? window.SantaDemo.createClient() : window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
   if (demo) addEventListener("DOMContentLoaded", () => {
@@ -62,13 +62,15 @@
   // Opens the pin in Google Maps (falls back to the family's own link).
   function mapsUrl(b) {
     if (b.lat != null && b.lng != null) return `https://www.google.com/maps/search/?api=1&query=${b.lat},${b.lng}`;
-    return b.maps_link || "";
+    return safeLink(b.maps_link);
   }
   // Starts Google Maps driving directions to the pin.
   function navUrl(b) {
     if (b.lat != null && b.lng != null) return `https://www.google.com/maps/dir/?api=1&destination=${b.lat},${b.lng}&travelmode=driving`;
-    return b.maps_link || "";
+    return safeLink(b.maps_link);
   }
+  // Only ever link to web addresses (never "javascript:" and the like).
+  const safeLink = (u) => (/^https?:\/\//i.test(String(u || "").trim()) ? String(u).trim() : "");
 
   // ================= Map pin =================
 

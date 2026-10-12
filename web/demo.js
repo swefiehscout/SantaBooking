@@ -137,12 +137,6 @@
     for (let m = a; m + S().slot_minutes <= z; m += S().slot_minutes) out.push(fromMin(m));
     return out;
   }
-  function km(a, b, c, d) {
-    if ([a, b, c, d].some((v) => v == null)) return null;
-    const r = (x) => (x * Math.PI) / 180;
-    const h = Math.sin(r(c - a) / 2) ** 2 + Math.cos(r(a)) * Math.cos(r(c)) * Math.sin(r(d - b) / 2) ** 2;
-    return 6371 * 2 * Math.asin(Math.sqrt(h));
-  }
   function carFree(car, slot) {
     const c = db.cars.find((x) => x.id === car);
     const o = db.slot_overrides.find((x) => x.car_id === car && t5(x.slot_time) === slot);
@@ -151,33 +145,13 @@
     const used = db.bookings.filter((b) => b.car_id === car && t5(b.slot_time) === slot && ACTIVE.includes(b.status)).length;
     return Math.max(0, (o?.capacity ?? S().default_capacity) - used);
   }
-  function carDistance(car, slot, lat, lng) {
-    const near = [fromMin(toMin(slot) - S().slot_minutes), fromMin(toMin(slot) + S().slot_minutes)];
-    const ds = db.bookings.filter((b) => b.car_id === car && ACTIVE.includes(b.status) && near.includes(t5(b.slot_time)))
-      .map((b) => { const a = db.areas.find((x) => x.id === b.area_id) || {}; return km(lat, lng, b.lat ?? a.lat, b.lng ?? a.lng); })
-      .filter((d) => d != null);
-    if (ds.length) return Math.min(...ds);
-    const z = db.areas.filter((a) => a.car_id === car && a.lat != null);
-    if (!z.length) return null;
-    return km(lat, lng, z.reduce((s, a) => s + a.lat, 0) / z.length, z.reduce((s, a) => s + a.lng, 0) / z.length);
-  }
-  function pickCar(slot, areaId, lat, lng) {
-    const a = db.areas.find((x) => x.id === areaId) || {};
-    lat = lat ?? a.lat; lng = lng ?? a.lng;
-    if (a.car_id && carFree(a.car_id, slot) > 0) return a.car_id;
-    const cars = db.cars.filter((c) => c.active && c.id !== a.car_id && carFree(c.id, slot) > 0);
-    if (lat == null) return cars[0]?.id ?? null;
-    const ok = cars.map((c) => ({ c, d: carDistance(c.id, slot, lat, lng) }))
-      .filter((x) => (x.d ?? 0) <= S().borrow_km).sort((x, y) => (x.d ?? 999) - (y.d ?? 999));
-    return ok[0]?.c.id ?? null;
-  }
   // The website only books an area's own car (mirrors home_car in schema.sql).
   function homeCar(slot, areaId) {
     const a = db.areas.find((x) => x.id === areaId);
     return a?.car_id && carFree(a.car_id, slot) > 0 ? a.car_id : null;
   }
   const isOpen = () => S().booking_open &&
-    Date.now() < new Date(`${S().event_date}T${t5(S().start_time)}:00+02:00`).getTime() - S().cutoff_hours * 3600e3;
+    Date.now() < new Date(`${S().event_date}T${t5(S().start_time)}:00+03:00`).getTime() - S().cutoff_hours * 3600e3;
 
   const RPC = {
     public_config: () => ({
@@ -194,14 +168,18 @@
       if (!/^(\+?962|0)?7[789]\d{7}$/.test(phone)) return { ok: false, reason: "phone" };
       if (!db.areas.some((a) => a.id === p.p_area && a.active)) return { ok: false, reason: "area" };
       if (!["cash", "cliq", "transfer"].includes(p.p_payment)) return { ok: false, reason: "payment" };
-      if (p.p_lat == null || p.p_lng == null || String(p.p_maps_link || "").trim().length < 8) return { ok: false, reason: "pin" };
+      if (p.p_lat == null || p.p_lng == null || !(p.p_lat > 29 && p.p_lat < 33.5 && p.p_lng > 34.8 && p.p_lng < 39.5)
+        || String(p.p_maps_link || "").trim().length < 8) return { ok: false, reason: "pin" };
+      const len = (v) => String(v || "").length;
+      if (len(p.p_name) > 100 || len(p.p_email) > 200 || len(p.p_maps_link) > 500 || len(p.p_address) > 300 || len(p.p_gift) > 600 || len(p.p_notes) > 600)
+        return { ok: false, reason: "long" };
       if (!slotList().includes(p.p_slot)) return { ok: false, reason: "slot" };
       const last9 = phone.replace(/\D/g, "").slice(-9);
       if (db.bookings.some((b) => b.phone.replace(/\D/g, "").endsWith(last9) && ["new", "confirmed", "waitlist"].includes(b.status)))
         return { ok: false, reason: "duplicate" };
-      let car = null;
+      // If the time turned out to be free after all, book it rather than waitlisting them.
+      const car = homeCar(p.p_slot, p.p_area);
       if (!p.p_waitlist) {
-        car = homeCar(p.p_slot, p.p_area);
         if (car == null) {
           const sug = slotList().filter((s) => homeCar(s, p.p_area) != null)
             .sort((a, b) => Math.abs(toMin(a) - toMin(p.p_slot)) - Math.abs(toMin(b) - toMin(p.p_slot))).slice(0, 3);

@@ -304,6 +304,14 @@ begin
   if v_phone !~ '^(\+?962|0)?7[789][0-9]{7}$' then
     return jsonb_build_object('ok', false, 'reason', 'phone');
   end if;
+  if length(p_name) > 100 or length(coalesce(p_email, '')) > 200 or length(coalesce(p_maps_link, '')) > 500
+     or length(coalesce(p_address, '')) > 300 or length(coalesce(p_gift, '')) > 600 or length(coalesce(p_notes, '')) > 600 then
+    return jsonb_build_object('ok', false, 'reason', 'long');
+  end if;
+  -- Light abuse guard: at most 40 website bookings in any 10 minutes.
+  if (select count(*) from bookings where created_at > now() - interval '10 minutes') >= 40 then
+    return jsonb_build_object('ok', false, 'reason', 'busy');
+  end if;
   if not exists (select 1 from areas where id = p_area and active) then
     return jsonb_build_object('ok', false, 'reason', 'area');
   end if;
@@ -330,8 +338,9 @@ begin
     return jsonb_build_object('ok', false, 'reason', 'duplicate');
   end if;
 
+  -- If the time turned out to be free after all, book it rather than waitlisting them.
+  v_car := home_car(v_slot, p_area);
   if not coalesce(p_waitlist, false) then
-    v_car := home_car(v_slot, p_area);
     if v_car is null then
       select coalesce(jsonb_agg(x.s), '[]') into v_sugg from (
         select to_char(t, 'HH24:MI') s from slot_list() t
@@ -445,7 +454,7 @@ create policy admin_all on booking_history for all to authenticated using (is_ad
 create policy admin_all on messages        for all to authenticated using (is_admin()) with check (is_admin());
 create policy admin_read on admins         for select to authenticated using (is_admin());
 
-revoke execute on all functions in schema public from public, anon;
+revoke execute on all functions in schema public from public, anon, authenticated;
 grant execute on function public_config()                       to anon, authenticated;
 grant execute on function public_availability(int, double precision, double precision) to anon, authenticated;
 grant execute on function public_book(text, text, text, int, double precision, double precision,

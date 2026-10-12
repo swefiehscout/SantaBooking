@@ -142,7 +142,7 @@
   }
   $("toast-undo").onclick = async () => {
     const fn = undoFn; undoFn = null; $("toast").hidden = true;
-    if (fn) { await fn(); toast("Undone"); }
+    if (fn && (await fn()) !== false) toast("Undone");
   };
 
   // ---------- Data ----------
@@ -162,7 +162,7 @@
   }
   async function reloadBookings() {
     const { data, error } = await sb.from("bookings").select("*").order("created_at");
-    if (error) return;
+    if (error) { console.error(error); return toast("Couldn't refresh bookings. Check your connection."); }
     S.bookings = data;
     softRender();
   }
@@ -190,26 +190,35 @@
 
   // Move a family to a car + time, with undo.
   async function moveTo(b, carId, slot) {
-    const free = freeIn(carId, slot, b.id);
-    if (override(carId, slot)?.blocked && !confirm(`${carName(carId)} is blocked at ${shortTime(slot)}. Put ${b.name} there anyway?`)) return;
-    if (free <= 0 && !override(carId, slot)?.blocked && !confirm(`${carName(carId)} already has a visit at ${shortTime(slot)}. Put ${b.name} there too?`)) return;
+    if (!okToPlace(b, carId, slot)) return;
     const before = { car_id: b.car_id, slot_time: b.slot_time, status: b.status };
     const patch = { car_id: carId, slot_time: slot };
     if (b.status === "waitlist" || b.status === "cancelled") patch.status = "new";
     S.moving = null;
     if (await update(b, patch, true)) toast(`${b.name} moved to ${carName(carId)} at ${shortTime(slot)}`, () => update(b, before, true));
   }
+  // Asks before putting a family where the car can't normally go. Returns false if the team says no.
+  function okToPlace(b, carId, slot) {
+    const car = carById(carId), o = override(carId, slot);
+    if (!car?.active) return confirm(`${carName(carId)} is switched off. Put ${b.name} there anyway?`);
+    if (!carWorks(car, slot)) return confirm(`${car.name} isn't working at ${shortTime(slot)}. Put ${b.name} there anyway?`);
+    if (o?.blocked) return confirm(`${car.name} is blocked at ${shortTime(slot)}. Put ${b.name} there anyway?`);
+    if (freeIn(carId, slot, b.id) <= 0) return confirm(`${car.name} already has a visit at ${shortTime(slot)}. Put ${b.name} there too?`);
+    return true;
+  }
   async function swap(a, b) {
     const pa = { car_id: a.car_id, slot_time: a.slot_time }, pb = { car_id: b.car_id, slot_time: b.slot_time };
     S.moving = null;
     if (!(await update(a, pb, true))) return;
-    if (!(await update(b, pa, true))) return;
-    toast(`Swapped ${a.name} and ${b.name}`, async () => { await update(a, pa, true); await update(b, pb, true); });
+    // If the second half fails, put the first family back so nobody is double-booked.
+    if (!(await update(b, pa, true))) { await update(a, pa, true); return; }
+    toast(`Swapped ${a.name} and ${b.name}`, async () => (await update(a, pa, true)) && update(b, pb, true));
   }
   async function setStatus(b, status) {
     const before = { status: b.status, car_id: b.car_id, slot_time: b.slot_time };
     const patch = { status };
     if (status === "waitlist") { patch.car_id = null; patch.slot_time = null; }
+    if (ACTIVE.includes(status) && (!b.car_id || !b.slot_time)) return toast(`Give ${b.name} a car and a time first (Find a place or Move).`);
     if (await update(b, patch, true)) toast(`${b.name}: ${STATUS[status]}`, () => update(b, before, true));
   }
   async function setCarHours(car, patch) {
@@ -219,7 +228,9 @@
     Object.assign(car, patch);
     render();
     toast(`${car.name} now works ${shortTime(fromMin(carStart(car)))} – ${shortTime(fromMin(carEnd(car)))}`, async () => {
-      await sb.from("cars").update(before).eq("id", car.id); Object.assign(car, before); render();
+      const { error } = await sb.from("cars").update(before).eq("id", car.id);
+      if (error) { toast("Not saved: " + error.message); return false; }
+      Object.assign(car, before); render();
     });
   }
   async function setOverride(carId, slot, patch) {
@@ -337,7 +348,8 @@
       const cls = [o?.blocked ? "blocked" : "", list.length > cap ? "over" : "", canDrop ? "can-drop" : ""].join(" ");
       if (!carWorks(c, s) && !list.length) return { cls: "off", inner: `<div class="cellbox"><button class="slotbtn" data-cell="${c.id}|${s}" title="Outside ${esc(c.name)}'s hours">Not working</button></div>` };
       const spot = o?.blocked ? `<button class="slotbtn" data-cell="${c.id}|${s}">Blocked</button>`
-        : list.length < cap ? `<button class="slotbtn" data-cell="${c.id}|${s}" aria-label="Free: ${esc(c.name)} at ${esc(shortTime(s))}">+</button>` : "";
+        : list.length < cap ? `<button class="slotbtn" data-cell="${c.id}|${s}" aria-label="Free: ${esc(c.name)} at ${esc(shortTime(s))}">+</button>`
+        : `<button class="slotbtn full" data-cell="${c.id}|${s}" aria-label="${esc(c.name)} at ${esc(shortTime(s))} is full: options">Full · options</button>`;
       return { cls, inner: `<div class="cellbox">${list.map(fam).join("")}${spot}</div>` };
     };
 
@@ -571,7 +583,7 @@
     const byCar = by((b) => b.collected_by ?? b.car_id);
     const visits = S.bookings.filter((b) => ACTIVE.includes(b.status));
     const stops = carId ? route(carId) : [];
-    const carOpts = (sel) => activeCars().map((c) => `<option value="${c.id}" ${c.id === sel ? "selected" : ""}>${esc(c.name)}</option>`).join("");
+    const carOpts = (sel) => S.cars.filter((c) => c.active || c.id === sel).map((c) => `<option value="${c.id}" ${c.id === sel ? "selected" : ""}>${esc(c.name)}${c.active ? "" : " (off)"}</option>`).join("");
     const payOpts = (sel) => Object.entries(PAY).map(([k, v]) => `<option value="${k}" ${k === sel ? "selected" : ""}>${v}</option>`).join("");
 
     $("main").innerHTML = intro("Donations", "Record what each family gave, car by car, in the same order as the printed sheet. Everything saves as you type.") + `
@@ -680,7 +692,6 @@
     window.print();
   }
   function exportAll() {
-    logEvent("exported", "Exported all bookings to Excel");
     const row = (b) => ({
       Ref: b.ref, Time: b.slot_time ? label(hhmm(b.slot_time)) : "", Car: b.car_id ? carName(b.car_id) : "", Status: STATUS[b.status],
       Name: b.name, Phone: b.phone, Email: b.email, Area: areaName(b.area_id), Address: b.address_details, Directions: b.lat != null ? navUrl(b) : "", "Family's map link": b.maps_link,
@@ -689,9 +700,18 @@
     });
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(S.bookings.map(row)), "All bookings");
-    for (const c of activeCars()) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(route(c.id).map(row)), c.name.slice(0, 31));
+    // Excel sheet names: no : \\ / ? * [ ], at most 31 characters, and all different.
+    const used = new Set(["all bookings", "waitlist"]);
+    const sheetName = (n) => {
+      let base = String(n).replace(/[:\\/?*[\]]/g, " ").trim().slice(0, 28) || "Car", name = base;
+      for (let i = 2; used.has(name.toLowerCase()); i++) name = `${base} ${i}`;
+      used.add(name.toLowerCase());
+      return name;
+    };
+    for (const c of activeCars()) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(route(c.id).map(row)), sheetName(c.name));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(S.bookings.filter((b) => b.status === "waitlist").map(row)), "Waitlist");
     XLSX.writeFile(wb, `santa-bookings-${todayJo()}.xlsx`);
+    logEvent("exported", "Exported all bookings to Excel");
   }
 
   // ===== Activity log (read-only) =====
@@ -767,7 +787,8 @@
     render();
   }
   async function logEvent(action, label) {
-    await sb.from("activity_log").insert({ actor: S.me, action, entity: "team", label });
+    const { error } = await sb.from("activity_log").insert({ actor: S.me, action, entity: "team", label });
+    if (error) console.error("Activity log:", error.message);
   }
   function viewActivity() {
     if (!S.log) { $("main").innerHTML = intro("Activity log", "Loading…"); loadLog(); return; }
@@ -866,7 +887,7 @@
       <div><button class="btn" id="add-car">+ Add a car</button></div>
     </div>
     <div class="panel"><h3>Areas</h3>
-      <p class="muted" style="margin:0">Each area's bookings go to its car first. If that car is full, the nearest car with room takes it. The coordinates are used when a family doesn't drop a pin.</p>
+      <p class="muted" style="margin:0">Families can only book their area's car. If it's full at the time they want, they can join the waitlist and the team places them from there. The coordinates are used when a family doesn't drop a pin.</p>
       <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Area</th><th>Its car</th><th>Lat</th><th>Lng</th><th>Shown</th></tr></thead><tbody>
       ${S.areas.map((a) => `<tr>
         <td><input data-area="${a.id}" data-k="name_en" value="${esc(a.name_en)}"></td>
@@ -967,7 +988,7 @@
   function quickAdd(preset = {}) {
     let picker = null;
     const slotOpts = () => {
-      const area = Number($("q-area").value) || null, pos = picker?.get();
+      const area = Number($("q-area").value) || null;
       return slots().map((s) => {
         const fits = preset.car ? freeIn(preset.car, s) > 0 : area ? !!pickCar(s, area) : null;
         return `<option value="${s}" ${s === ($("q-slot")?.value || preset.slot) ? "selected" : ""}>${esc(label(s))}${fits == null ? "" : fits ? " · free" : " · full"}</option>`;
@@ -989,7 +1010,7 @@
       <div id="q-out"></div>`,
       `<button class="btn primary" id="q-save">Add booking</button><button class="btn" id="q-cancel">Cancel</button>`,
       (close) => {
-        picker = wireLocation("q", {}, null, () => { $("q-slot").innerHTML = slotOpts(); });
+        picker = wireLocation("q", {}, null);
         $("q-slot").innerHTML = slotOpts();
         $("q-area").onchange = () => {
           const a = areaById(Number($("q-area").value));
@@ -998,7 +1019,10 @@
         };
         $("q-cancel").onclick = close;
         $("q-name").focus();
+        let saving = false;
         const insert = async (car, slot, status) => {
+          if (saving) return;
+          saving = true;
           const pos = picker.get();
           const row = {
             name: $("q-name").value.trim(), phone: normPhone($("q-phone").value),
@@ -1007,12 +1031,14 @@
             payment_method: $("q-pay").value, preferred_time: $("q-slot").value, slot_time: car ? slot : null, car_id: car, status, updated_by: S.me,
           };
           const { data, error } = await sb.from("bookings").insert(row).select().single();
+          saving = false;
           if (error) return toast("Not saved: " + error.message);
           S.bookings.push(data);
           close();
           render();
           toast(car ? `Added ${data.name}: ${carName(car)} at ${shortTime(slot)}` : `Added ${data.name} to the waitlist`, async () => {
-            await sb.from("bookings").delete().eq("id", data.id);
+            const { error } = await sb.from("bookings").delete().eq("id", data.id);
+            if (error) { toast("Not undone: " + error.message); return false; }
             S.bookings = S.bookings.filter((x) => x.id !== data.id); render();
           });
         };
@@ -1028,7 +1054,7 @@
           flag("q-pay", !$("q-pay").value, "how they'll donate");
           if (bad.length) return toast("Still needed: " + bad.join(", ") + ".");
           const slot = $("q-slot").value, pos = picker.get();
-          if (preset.car) return insert(preset.car, slot, "new");
+          if (preset.car) return okToPlace({ name: "this family" }, preset.car, slot) && insert(preset.car, slot, "new");
           const pick = pickCar(slot, Number($("q-area").value));
           if (pick) return insert(pick.car.id, slot, "new");
           const opts = options({ area_id: Number($("q-area").value), preferred_time: slot, lat: pos.lat, lng: pos.lng }, slot, 3);
@@ -1051,6 +1077,7 @@
     const slotOpts = (sel) => `<option value="">No time</option>` + sl.concat(sel && !sl.includes(hhmm(sel)) ? [hhmm(sel)] : [])
       .map((s) => `<option value="${s}" ${hhmm(sel) === s ? "selected" : ""}>${esc(label(s))}</option>`).join("");
     const carOpts = `<option value="">No car</option>` + S.cars.map((c) => `<option value="${c.id}" ${c.id === b.car_id ? "selected" : ""}>${esc(c.name)}${c.active ? "" : " (off)"}</option>`).join("");
+    const start = { ...b }; // what the drawer opened with
     const confirmMsg = `Hi ${b.name}, this is ${cfg.ORG_NAME_EN} confirming Santa's visit on Christmas Eve at ${b.slot_time ? label(hhmm(b.slot_time)) : ""}. Booking ${b.ref}. 🎅`;
     let status = b.status;
 
@@ -1144,6 +1171,10 @@
           };
           if (patch.status === "waitlist") { patch.car_id = null; patch.slot_time = null; }
           if (patch.name.length < 2) return toast("Add the family's name.");
+          if (ACTIVE.includes(patch.status) && (!patch.car_id || !patch.slot_time))
+            return toast("Choose a car and a time, or set the status to Waitlist.");
+          const placeChanged = patch.car_id !== start.car_id || patch.slot_time !== hhmm(start.slot_time) || (ACTIVE.includes(patch.status) && !ACTIVE.includes(start.status));
+          if (ACTIVE.includes(patch.status) && placeChanged && !okToPlace(b, patch.car_id, patch.slot_time)) return;
           if (patch.status !== "cancelled") {
             const miss = [];
             if (!normPhone(patch.phone)) miss.push("a valid Jordanian mobile");
@@ -1152,6 +1183,11 @@
             if (!looksLikeMaps(patch.maps_link)) { miss.push("Google Maps link"); $("d-maps").classList.add("invalid"); }
             if (miss.length) return toast("Still needed: " + miss.join(", ") + ".");
           }
+          // Only send what was changed here, so a teammate's edit made meanwhile isn't overwritten.
+          const norm = (k, v) => (k.endsWith("_time") ? hhmm(v) || null : v === "" || v === undefined ? null : v);
+          for (const k of Object.keys(patch)) if (k !== "paid" && norm(k, patch[k]) === norm(k, start[k])) delete patch[k];
+          if (!("amount" in patch)) delete patch.paid;
+          if (!Object.keys(patch).length) return close();
           if (await update(b, patch)) close();
         };
         $("d-delete").onclick = async () => {

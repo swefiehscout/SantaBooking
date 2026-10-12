@@ -191,7 +191,7 @@ language sql stable security definer set search_path = public as $$
   select coalesce((select min(d) from near_stops), (select d from zone));
 $$;
 
--- Choose a car for a booking, or null if none fits.
+-- Choose a car for a booking, or null if none fits. (Used for the team's suggestions; the website uses home_car.)
 -- 1) the area's home car if it has room,
 -- 2) else the closest other car with room, within borrow_km.
 create or replace function pick_car(p_slot time, p_area int,
@@ -233,6 +233,13 @@ begin
 end;
 $$;
 
+-- The website only books an area's own car, so busy areas can't take other areas' places.
+-- Anything else goes to the waitlist, and the team assigns another car from there.
+create or replace function home_car(p_slot time, p_area int) returns int
+language sql stable security definer set search_path = public as $$
+  select a.car_id from areas a where a.id = p_area and a.car_id is not null and car_free(a.car_id, p_slot) > 0;
+$$;
+
 create or replace function bookings_open() returns boolean
 language sql stable as $$
   select s.booking_open and
@@ -260,13 +267,13 @@ language sql stable security definer set search_path = public as $$
   ) from settings s where s.id = 1;
 $$;
 
--- Which slots are bookable for this family's location.
+-- Which slots are bookable in this family's area (its home car only; the pin doesn't matter).
 create or replace function public_availability(p_area int,
                                                p_lat double precision default null,
                                                p_lng double precision default null)
 returns table (slot text, available boolean)
 language sql stable security definer set search_path = public as $$
-  select to_char(t, 'HH24:MI'), pick_car(t, p_area, p_lat, p_lng) is not null
+  select to_char(t, 'HH24:MI'), home_car(t, p_area) is not null
   from slot_list() t order by tmin(t);
 $$;
 
@@ -324,11 +331,11 @@ begin
   end if;
 
   if not coalesce(p_waitlist, false) then
-    v_car := pick_car(v_slot, p_area, p_lat, p_lng);
+    v_car := home_car(v_slot, p_area);
     if v_car is null then
       select coalesce(jsonb_agg(x.s), '[]') into v_sugg from (
         select to_char(t, 'HH24:MI') s from slot_list() t
-        where pick_car(t, p_area, p_lat, p_lng) is not null
+        where home_car(t, p_area) is not null
         order by abs(tmin(t) - tmin(v_slot)), tmin(t)
         limit 3) x;
       return jsonb_build_object('ok', false, 'reason', 'full', 'suggestions', v_sugg);

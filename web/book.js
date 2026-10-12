@@ -35,7 +35,6 @@
         $("pin-state").textContent = "Your home is marked. Drag the pin to adjust it.";
         $("pin-state").classList.add("ok");
         $("pin-err").hidden = true;
-        loadAvailability();
       },
     });
   }
@@ -72,9 +71,8 @@
       const a = currentArea();
       if (!a) { slots = []; renderSlots(); return; }
       const seq = ++availSeq;
-      const { data, error } = await sb.rpc("public_availability", {
-        p_area: a.id, p_lat: pin ? pin.lat : null, p_lng: pin ? pin.lng : null,
-      });
+      // Only the area's own car counts; the pin is for the driver, not for picking times.
+      const { data, error } = await sb.rpc("public_availability", { p_area: a.id });
       if (seq !== availSeq) return;
       if (error) { console.error(error); return; }
       slots = data || [];

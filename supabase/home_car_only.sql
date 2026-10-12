@@ -1,0 +1,111 @@
+-- =====================================================================
+-- Website books the area's own car only. Run once in Supabase → SQL Editor.
+-- If the home car is full at a time, that time shows as taken and the family
+-- can join the waitlist; the team then assigns any car from the Waitlist page.
+-- =====================================================================
+
+-- The website only books an area's own car, so busy areas can't take other areas' places.
+-- Anything else goes to the waitlist, and the team assigns another car from there.
+create or replace function home_car(p_slot time, p_area int) returns int
+language sql stable security definer set search_path = public as $$
+  select a.car_id from areas a where a.id = p_area and a.car_id is not null and car_free(a.car_id, p_slot) > 0;
+$$;
+
+-- Which slots are bookable in this family's area (its home car only; the pin doesn't matter).
+create or replace function public_availability(p_area int,
+                                               p_lat double precision default null,
+                                               p_lng double precision default null)
+returns table (slot text, available boolean)
+language sql stable security definer set search_path = public as $$
+  select to_char(t, 'HH24:MI'), home_car(t, p_area) is not null
+  from slot_list() t order by tmin(t);
+$$;
+
+-- Create a booking. Returns {ok, ref, slot} or {ok:false, reason, suggestions}.
+create or replace function public_book(
+  p_name text, p_phone text, p_email text, p_area int,
+  p_lat double precision, p_lng double precision,
+  p_maps_link text, p_address text, p_gift text, p_notes text,
+  p_payment text, p_slot text, p_waitlist boolean, p_lang text)
+returns jsonb
+language plpgsql volatile security definer set search_path = public as $$
+declare
+  v_slot time;
+  v_car int;
+  v_ref text;
+  v_phone text := regexp_replace(coalesce(p_phone, ''), '[^0-9+]', '', 'g');
+  v_sugg jsonb;
+begin
+  -- One booking at a time, so two families can't grab the same last place.
+  perform pg_advisory_xact_lock(724);
+
+  if not bookings_open() then
+    return jsonb_build_object('ok', false, 'reason', 'closed');
+  end if;
+  if length(trim(coalesce(p_name, ''))) < 2 then
+    return jsonb_build_object('ok', false, 'reason', 'name');
+  end if;
+  if v_phone !~ '^(\+?962|0)?7[789][0-9]{7}$' then
+    return jsonb_build_object('ok', false, 'reason', 'phone');
+  end if;
+  if not exists (select 1 from areas where id = p_area and active) then
+    return jsonb_build_object('ok', false, 'reason', 'area');
+  end if;
+  if coalesce(p_payment, '') not in ('cash','cliq','transfer') then
+    return jsonb_build_object('ok', false, 'reason', 'payment');
+  end if;
+  -- Every booking needs a map pin inside Jordan and a Google Maps link.
+  if p_lat is null or p_lng is null or p_lat not between 29 and 33.5 or p_lng not between 34.8 and 39.5
+     or length(trim(coalesce(p_maps_link, ''))) < 8 then
+    return jsonb_build_object('ok', false, 'reason', 'pin');
+  end if;
+  begin
+    v_slot := p_slot::time;
+  exception when others then
+    return jsonb_build_object('ok', false, 'reason', 'slot');
+  end;
+  if v_slot not in (select slot_list()) then
+    return jsonb_build_object('ok', false, 'reason', 'slot');
+  end if;
+  -- Same phone already holds an active booking.
+  if exists (select 1 from bookings
+             where regexp_replace(phone, '[^0-9]', '', 'g') ~ (right(regexp_replace(v_phone, '[^0-9]', '', 'g'), 9) || '$')
+               and status in ('new','confirmed','waitlist')) then
+    return jsonb_build_object('ok', false, 'reason', 'duplicate');
+  end if;
+
+  if not coalesce(p_waitlist, false) then
+    v_car := home_car(v_slot, p_area);
+    if v_car is null then
+      select coalesce(jsonb_agg(x.s), '[]') into v_sugg from (
+        select to_char(t, 'HH24:MI') s from slot_list() t
+        where home_car(t, p_area) is not null
+        order by abs(tmin(t) - tmin(v_slot)), tmin(t)
+        limit 3) x;
+      return jsonb_build_object('ok', false, 'reason', 'full', 'suggestions', v_sugg);
+    end if;
+  end if;
+
+  insert into bookings (name, phone, email, area_id, lat, lng, maps_link, address_details,
+                        gift_message, notes, payment_method, preferred_time, slot_time,
+                        car_id, status, lang)
+  values (trim(p_name), v_phone, coalesce(trim(p_email), ''), p_area, p_lat, p_lng,
+          coalesce(trim(p_maps_link), ''), coalesce(trim(p_address), ''),
+          coalesce(trim(p_gift), ''), coalesce(trim(p_notes), ''),
+          p_payment,
+          v_slot,
+          case when v_car is null then null else v_slot end,
+          v_car,
+          case when v_car is null then 'waitlist' else 'new' end,
+          case when p_lang = 'ar' then 'ar' else 'en' end)
+  returning ref into v_ref;
+
+  return jsonb_build_object('ok', true, 'ref', v_ref,
+                            'waitlist', v_car is null, 'slot', to_char(v_slot, 'HH24:MI'));
+end;
+$$;
+
+-- Contact form.
+
+-- Only the booking functions above use it.
+revoke execute on function home_car(time, int) from public, anon;

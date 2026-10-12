@@ -80,17 +80,11 @@
       .map((b) => km(lat, lng, ...point(b))).filter((d) => d != null);
     return ds.length ? Math.min(...ds) : km(lat, lng, ...carCentre(carId));
   }
-  // The website's rule: home car if free, else the nearest car within the help distance.
-  function pickCar(slot, areaId, lat, lng, ignoreId) {
+  // The website's rule: the area's own car if it's free. Anything else is for the team to assign.
+  function pickCar(slot, areaId, ignoreId) {
     const a = areaById(areaId) || {};
-    lat = lat ?? a.lat; lng = lng ?? a.lng;
     if (a.car_id && carById(a.car_id)?.active && freeIn(a.car_id, slot, ignoreId) > 0) return { car: carById(a.car_id), home: true };
-    const cars = activeCars().filter((c) => c.id !== a.car_id && freeIn(c.id, slot, ignoreId) > 0);
-    if (lat == null) return cars[0] ? { car: cars[0] } : null;
-    const ok = cars.map((c) => ({ car: c, d: carDistance(c.id, slot, lat, lng, ignoreId) }))
-      .filter((x) => (x.d ?? 0) <= Number(S.settings.borrow_km))
-      .sort((x, y) => (x.d ?? 999) - (y.d ?? 999));
-    return ok[0] || null;
+    return null;
   }
   // For the team: the closest places to a wanted time, any car, home car first.
   function options(b, wanted, limit = 4) {
@@ -849,7 +843,6 @@
         <label class="f"><span>Last visit ends</span><input type="time" id="s-end_time" value="${hhmm(s.end_time)}"></label>
         <label class="f"><span>Visits each car can do at the same time</span><input type="number" min="0" id="s-default_capacity" value="${s.default_capacity}"></label>
         <label class="f"><span>Stop taking bookings this many hours before</span><input type="number" min="0" id="s-cutoff_hours" value="${s.cutoff_hours}"></label>
-        <label class="f"><span>Another car may help if it's within (km)</span><input type="number" min="0" step="0.5" id="s-borrow_km" value="${s.borrow_km}"></label>
         <label class="f"><span>Phone number shown to families</span><input id="s-contact_phone" value="${esc(s.contact_phone)}"></label>
         <label class="f"><span>CliQ alias (leave empty until ready)</span><input id="s-cliq_alias" value="${esc(s.cliq_alias)}"></label>
         <label class="f"><span>Donation note on the booking form</span><input id="s-price_note" value="${esc(s.price_note)}" placeholder="e.g. Suggested donation: 20 JD"></label>
@@ -889,7 +882,7 @@
     $("save-settings").onclick = async () => {
       const patch = {};
       for (const k of ["event_date", "start_time", "end_time", "contact_phone", "cliq_alias", "price_note"]) patch[k] = $("s-" + k).value;
-      for (const k of ["slot_minutes", "default_capacity", "cutoff_hours", "borrow_km"]) patch[k] = Number($("s-" + k).value);
+      for (const k of ["slot_minutes", "default_capacity", "cutoff_hours"]) patch[k] = Number($("s-" + k).value);
       patch.booking_open = $("s-booking_open").checked;
       if (toMin(patch.end_time) <= toMin(patch.start_time)) return toast("The last visit must end after the first one starts.");
       const { error } = await sb.from("settings").update(patch).eq("id", 1);
@@ -976,12 +969,12 @@
     const slotOpts = () => {
       const area = Number($("q-area").value) || null, pos = picker?.get();
       return slots().map((s) => {
-        const fits = preset.car ? freeIn(preset.car, s) > 0 : area ? !!pickCar(s, area, pos?.lat, pos?.lng) : null;
+        const fits = preset.car ? freeIn(preset.car, s) > 0 : area ? !!pickCar(s, area) : null;
         return `<option value="${s}" ${s === ($("q-slot")?.value || preset.slot) ? "selected" : ""}>${esc(label(s))}${fits == null ? "" : fits ? " · free" : " · full"}</option>`;
       }).join("");
     };
     modal("Add a booking", `
-      <p class="muted" style="margin:0">For families who call. Fields with * are required. The system picks the right car, just like the website.</p>
+      <p class="muted" style="margin:0">For families who call. Fields with * are required. Their area's car is used if it's free; otherwise you choose another car or the waitlist.</p>
       <div class="g2">
         <label class="f"><span>Family name *</span><input id="q-name" autocomplete="off"></label>
         <label class="f"><span>Mobile *</span><input id="q-phone" inputmode="tel" placeholder="07X XXX XXXX"></label>
@@ -1036,7 +1029,7 @@
           if (bad.length) return toast("Still needed: " + bad.join(", ") + ".");
           const slot = $("q-slot").value, pos = picker.get();
           if (preset.car) return insert(preset.car, slot, "new");
-          const pick = pickCar(slot, Number($("q-area").value), pos.lat, pos.lng);
+          const pick = pickCar(slot, Number($("q-area").value));
           if (pick) return insert(pick.car.id, slot, "new");
           const opts = options({ area_id: Number($("q-area").value), preferred_time: slot, lat: pos.lat, lng: pos.lng }, slot, 3);
           $("q-out").innerHTML = `<div class="note">${esc(shortTime(slot))} is full for that area.</div>

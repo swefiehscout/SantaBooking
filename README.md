@@ -47,8 +47,10 @@ The owner account `santa@swefieh-orthodox-scout.com` signs in by typing the full
 
 ## How cars get assigned
 
-1. The area's home car gets the booking if it has room at that time.
-2. Otherwise, the nearest other car with room takes it, as long as it's within the "help within km" setting. Distance is measured from the family's map pin to that car's stops just before and after, or to its zone.
-3. If no car can take it, the family sees the nearest free times, or can join the waitlist.
+1. On the website, a family can only book times when their area's home car is free. The map pin doesn't change this; it's for the driver.
+2. If they want a time that's taken, they can pick one of the nearest free times or join the waitlist for the time they wanted. Each family gets one or the other.
+3. The team assigns waitlist families from Admin → Waitlist, which lists every free car and time with its distance from the family.
+
+Run `supabase/home_car_only.sql` once in the SQL Editor to switch an existing database to this.
 
 Everything (hours, cars, zones, capacity, blocked times) can be edited in Admin → Setup and on the Board.

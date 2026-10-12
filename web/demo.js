@@ -171,6 +171,11 @@
       .filter((x) => (x.d ?? 0) <= S().borrow_km).sort((x, y) => (x.d ?? 999) - (y.d ?? 999));
     return ok[0]?.c.id ?? null;
   }
+  // The website only books an area's own car (mirrors home_car in schema.sql).
+  function homeCar(slot, areaId) {
+    const a = db.areas.find((x) => x.id === areaId);
+    return a?.car_id && carFree(a.car_id, slot) > 0 ? a.car_id : null;
+  }
   const isOpen = () => S().booking_open &&
     Date.now() < new Date(`${S().event_date}T${t5(S().start_time)}:00+02:00`).getTime() - S().cutoff_hours * 3600e3;
 
@@ -181,7 +186,7 @@
       areas: db.areas.filter((a) => a.active).sort((x, y) => x.sort - y.sort || x.name_en.localeCompare(y.name_en))
         .map((a) => ({ id: a.id, en: a.name_en, ar: a.name_ar, lat: a.lat, lng: a.lng })),
     }),
-    public_availability: (p) => slotList().map((s) => ({ slot: s, available: pickCar(s, p.p_area, p.p_lat, p.p_lng) != null })),
+    public_availability: (p) => slotList().map((s) => ({ slot: s, available: homeCar(s, p.p_area) != null })),
     public_book: (p) => {
       if (!isOpen()) return { ok: false, reason: "closed" };
       if ((p.p_name || "").trim().length < 2) return { ok: false, reason: "name" };
@@ -196,9 +201,9 @@
         return { ok: false, reason: "duplicate" };
       let car = null;
       if (!p.p_waitlist) {
-        car = pickCar(p.p_slot, p.p_area, p.p_lat, p.p_lng);
+        car = homeCar(p.p_slot, p.p_area);
         if (car == null) {
-          const sug = slotList().filter((s) => pickCar(s, p.p_area, p.p_lat, p.p_lng) != null)
+          const sug = slotList().filter((s) => homeCar(s, p.p_area) != null)
             .sort((a, b) => Math.abs(toMin(a) - toMin(p.p_slot)) - Math.abs(toMin(b) - toMin(p.p_slot))).slice(0, 3);
           return { ok: false, reason: "full", suggestions: sug };
         }

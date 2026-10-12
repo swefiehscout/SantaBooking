@@ -22,10 +22,10 @@
     <p class="eyebrow">We'd love to hear from you</p>
     <h1>Write to <em>Santa's Helpers</em></h1>
     <span class="flourish"></span>
-    <p class="lede">Questions about your booking, changing your time, or your donation? Call or message a scout leader, or send us a note below.</p>
+    <p class="lede">Questions about your booking, changing your time, or your donation? Send us a note below and we'll get back to you.</p>
   </section>
 
-  <div class="contact-grid" id="cards"></div>
+  <div class="contact-grid narrow" id="cards"></div>
 
   <form id="msg-form" class="card narrow" novalidate>
     <fieldset>
@@ -63,28 +63,17 @@
 <script src="shared.js"></script>
 <script>
 (function () {
-  const { cfg, sb, esc, waNumber, page } = window.Santa;
+  const { cfg, sb, esc, page } = window.Santa;
   const C = cfg.CONTACT || {};
   const $ = (id) => document.getElementById(id);
   page("contact");
 
-  const tel = (p) => String(p).replace(/[^\d+]/g, "");
-  const cards = [];
-  if (C.people?.length) cards.push(`<div class="contact-card"><h3>Scout Leaders</h3>${C.people.map((p) => `
-    <div class="person"><span class="big">${esc(p.name_en)}</span><span class="phone">${esc(p.phone)}</span>
-      <div class="pill-row"><a class="pill" href="tel:${tel(p.phone)}">Call</a>
-      <a class="pill" href="https://wa.me/${waNumber(p.phone) || tel(p.phone).replace(/^\+/, "")}" target="_blank" rel="noopener">WhatsApp</a></div></div>`).join("")}</div>`);
-  const right = [];
-  if (C.email) right.push(`<h3>Email</h3><a class="big" href="mailto:${esc(C.email)}">${esc(C.email)}</a>`);
   const social = [
     C.instagram && `<a class="pill" href="${esc(C.instagram)}" target="_blank" rel="noopener">Instagram</a>`,
     C.facebook && `<a class="pill" href="${esc(C.facebook)}" target="_blank" rel="noopener">Facebook</a>`,
     C.website && `<a class="pill" href="${esc(C.website)}" target="_blank" rel="noopener">Website</a>`,
   ].filter(Boolean);
-  if (social.length) right.push(`<h3 style="margin-top:14px">Follow Us</h3><div class="pill-row">${social.join("")}</div>`);
-  if (right.length) cards.push(`<div class="contact-card">${right.join("")}</div>`);
-  if (C.place_en) cards.push(`<div class="contact-card"><h3>Find Us</h3><span class="big">${esc(C.place_en)}</span>
-    <a class="pill" href="https://www.google.com/maps/search/${encodeURIComponent(C.place_en)}" target="_blank" rel="noopener">Open in Google Maps</a></div>`);
+  const cards = social.length ? [`<div class="contact-card"><h3>Follow Us</h3><div class="pill-row">${social.join("")}</div></div>`] : [];
   $("cards").innerHTML = cards.join("");
 
   $("msg-form").addEventListener("submit", async (e) => {

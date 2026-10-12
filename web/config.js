@@ -14,17 +14,10 @@ window.SANTA_CONFIG = {
   ORG_NAME_EN: "Greek Orthodox Scouts & Guides – Swefieh",
   ORG_NAME_AR: "مجموعة كشافة ومرشدات الروم الأرثوذكس – الصويفية",
 
-  // Contact page. Edit freely; remove a line to hide it.
+  // Contact page links. Remove a line to hide it.
   CONTACT: {
-    people: [
-      { name_en: "Leader Wasan", name_ar: "وسن", phone: "+962 7 9644 1145" },
-      { name_en: "Leader Mina",  name_ar: "مينا", phone: "+962 7 9831 2286" },
-    ],
-    email: "info@swefieh-orthodox-scout.com",
     instagram: "https://www.instagram.com/theorthodoxscout",
     facebook: "https://www.facebook.com/share/1Eh8bqpyn2/",
     website: "https://www.swefieh-orthodox-scout.com/",
-    place_en: "Presentation of the Lord Cathedral, Swefieh, Amman",
-    place_ar: "كاتدرائية دخول السيد المسيح إلى الهيكل، الصويفية، عمّان",
   },
 };

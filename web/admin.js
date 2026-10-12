@@ -348,8 +348,7 @@
       const cls = [o?.blocked ? "blocked" : "", list.length > cap ? "over" : "", canDrop ? "can-drop" : ""].join(" ");
       if (!carWorks(c, s) && !list.length) return { cls: "off", inner: `<div class="cellbox"><button class="slotbtn" data-cell="${c.id}|${s}" title="Outside ${esc(c.name)}'s hours">Not working</button></div>` };
       const spot = o?.blocked ? `<button class="slotbtn" data-cell="${c.id}|${s}">Blocked</button>`
-        : list.length < cap ? `<button class="slotbtn" data-cell="${c.id}|${s}" aria-label="Free: ${esc(c.name)} at ${esc(shortTime(s))}">+</button>`
-        : `<button class="slotbtn full" data-cell="${c.id}|${s}" aria-label="${esc(c.name)} at ${esc(shortTime(s))} is full: options">Full · options</button>`;
+        : list.length < cap ? `<button class="slotbtn" data-cell="${c.id}|${s}" aria-label="Free: ${esc(c.name)} at ${esc(shortTime(s))}">+</button>` : "";
       return { cls, inner: `<div class="cellbox">${list.map(fam).join("")}${spot}</div>` };
     };
 
@@ -414,7 +413,9 @@
       <button class="btn" id="m-move">Move or swap this family</button>
       <button class="btn" id="m-open">Open details</button>
       ${b.status === "new" ? `<button class="btn good" id="m-conf">Mark as confirmed</button>` : ""}
+      ${b.car_id && b.slot_time ? `<button class="btn" id="m-spot">Block ${esc(carName(b.car_id))} at ${esc(shortTime(hhmm(b.slot_time)))}, or allow more than one family</button>` : ""}
     </div>`, "", (close) => {
+      if ($("m-spot")) $("m-spot").onclick = () => { close(); cellMenu(b.car_id, hhmm(b.slot_time)); };
       $("m-move").onclick = () => { close(); S.moving = b.id; S.tab = "schedule"; render(); };
       $("m-open").onclick = () => { close(); openBooking(b.id); };
       if ($("m-conf")) $("m-conf").onclick = () => { close(); setStatus(b, "confirmed"); };

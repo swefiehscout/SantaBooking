@@ -203,9 +203,12 @@ td.off .slotbtn { border-style: solid; font-size: 12px; color: #a9a1a3; }
 td.blocked { background: repeating-linear-gradient(135deg, #f4f1ee 0 7px, #ebe6e2 7px 14px); }
 td.blocked .slotbtn { border-style: solid; font-size: 13px; color: var(--muted); }
 td.over { background: var(--call-soft); }
-body.moving td.can-drop .slotbtn { border: 2px solid var(--free); color: var(--free); background: var(--ok-soft); }
+/* While moving, free spots are solid green and the other families fade back, so the two never look alike. */
+body.moving td.can-drop .slotbtn { border: 2px solid var(--free); color: #fff; background: var(--free); box-shadow: 0 2px 6px rgba(31,107,69,.35); }
+body.moving td.can-drop .slotbtn:hover { filter: brightness(1.15); }
 body.moving td.can-drop .slotbtn::after { content: " Move here"; font-size: 13px; font-weight: 600; }
-body.moving .fam:not(.selected) { cursor: pointer; }
+body.moving .fam:not(.selected) { cursor: pointer; opacity: .45; transition: opacity .12s; }
+body.moving .fam:not(.selected):hover { opacity: 1; outline: 2px dashed var(--ink); outline-offset: 1px; }
 td.drag-over { outline: 3px solid var(--free); outline-offset: -3px; }
 
 /* Per-car list (phone / single car) */

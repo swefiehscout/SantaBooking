@@ -32,7 +32,9 @@
   const activeCars = () => S.cars.filter((c) => c.active).sort((a, b) => a.sort - b.sort || a.id - b.id);
   // All timestamps are shown in Jordan time, whatever the viewer's device is set to.
   const TZ = "Asia/Amman";
-  const dateTime = (iso) => new Date(iso).toLocaleString("en-GB", { timeZone: TZ, day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  // "3:05 PM" (or "3:05:09 PM") in Jordan time.
+  const timeJo = (iso, sec) => new Date(iso).toLocaleTimeString("en-US", { timeZone: TZ, hour: "numeric", minute: "2-digit", ...(sec ? { second: "2-digit" } : {}), hour12: true });
+  const dateTime = (iso) => `${new Date(iso).toLocaleDateString("en-GB", { timeZone: TZ, day: "numeric", month: "short" })}, ${timeJo(iso)}`;
   const todayJo = () => new Date().toLocaleDateString("en-CA", { timeZone: TZ });   // 2026-12-24
   const jd = (n) => `${Number(n || 0).toLocaleString("en-GB", { maximumFractionDigits: 2 })} JD`;
 
@@ -784,7 +786,7 @@
       const d = day(r.at);
       if (d !== last) { html += `<h3 class="logday">${esc(d)}</h3>`; last = d; }
       const det = logDetails(r);
-      html += `<div class="logrow ${r.action}"><span class="logtime num">${esc(new Date(r.at).toLocaleTimeString("en-GB", { timeZone: TZ, hour: "2-digit", minute: "2-digit", second: "2-digit" }))}</span>
+      html += `<div class="logrow ${r.action}"><span class="logtime num">${esc(timeJo(r.at, true))}</span>
         <div><div><b class="${r.actor === "Website" ? "web" : ""}">${esc(who(r.actor))}</b> ${logSentence(r)}</div>${det ? `<div class="logdet">${det}</div>` : ""}</div></div>`;
     }
     $("main").innerHTML = intro("Activity log", "Everything that has happened, newest first: who did it, what changed, and when (Jordan time). Nobody can edit or delete this log.") + `
@@ -804,7 +806,7 @@
     if ($("log-older")) $("log-older").onclick = () => loadLog(true);
     $("log-xls").onclick = () => {
       const strip = (h) => h.replace(/<[^>]*>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'");
-      const out = rows.map((r) => ({ Date: new Date(r.at).toLocaleDateString("en-GB", { timeZone: TZ }), "Time (Jordan)": new Date(r.at).toLocaleTimeString("en-GB", { timeZone: TZ }), Who: who(r.actor),
+      const out = rows.map((r) => ({ Date: new Date(r.at).toLocaleDateString("en-GB", { timeZone: TZ }), "Time (Jordan)": timeJo(r.at, true), Who: who(r.actor),
         What: strip(logSentence(r)), Details: strip(logDetails(r).replace(/<\/div><div>/g, "; ")) }));
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(out), "Activity log");

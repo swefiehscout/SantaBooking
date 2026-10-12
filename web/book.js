@@ -1,6 +1,6 @@
 // Public booking form.
 (function () {
-  const { sb, slotLabel, normPhone, esc, page, parseMapsLink, isShortMapsLink, pinPicker } = window.Santa;
+  const { sb, toMin, slotLabel, normPhone, esc, page, parseMapsLink, isShortMapsLink, pinPicker } = window.Santa;
   const $ = (id) => document.getElementById(id);
 
   let config = null;
@@ -78,7 +78,7 @@
       if (seq !== availSeq) return;
       if (error) { console.error(error); return; }
       slots = data || [];
-      if (chosen && !slots.some((s) => s.slot === chosen && s.available) && slots.some((s) => s.available)) chosen = null;
+      if (chosen && !slots.some((s) => s.slot === chosen)) chosen = null;
       renderSlots();
     }, 250);
   }
@@ -89,16 +89,28 @@
       return;
     }
     const anyFree = slots.some((s) => s.available);
-    // When every time is full, keep them clickable so the family can join the waitlist.
-    box.innerHTML = (anyFree ? "" : `<div class="slots-empty" style="grid-column:1/-1">Every time is taken in your area. Choose one to join the waitlist.</div>`) +
-      slots.map((s) => `<button type="button" class="slot" data-slot="${s.slot}" aria-pressed="${chosen === s.slot}" ${anyFree && !s.available ? "disabled" : ""}>
-          <span class="t">${esc(label(s.slot))}</span><small>${s.available ? "Available" : "Taken"}</small></button>`).join("");
+    // Taken times stay tappable: the family either picks a free time (booked) or keeps the taken one (waitlist), never both.
+    const free = nearestFree(chosen);
+    box.innerHTML = (anyFree ? "" : `<div class="slots-empty" style="grid-column:1/-1">Every time is taken in your area. Choose the time you'd like and we'll put you on the waitlist.</div>`) +
+      slots.map((s) => `<button type="button" class="slot${s.available ? "" : " taken"}" data-slot="${s.slot}" aria-pressed="${chosen === s.slot}">
+          <span class="t">${esc(label(s.slot))}</span><small>${s.available ? "Available" : "Taken · waitlist"}</small></button>`).join("") +
+      (chosen && !isFree(chosen) ? `<div class="wait-note" style="grid-column:1/-1">
+          <p><strong>${esc(label(chosen))} is taken.</strong>${free.length ? " These times are still free. Tap one to book it instead:" : ""}</p>
+          ${free.length ? `<div class="sugg">${free.map((s) => `<button type="button" class="slot" data-slot="${s}"><span class="t">${esc(label(s))}</span><small>Available</small></button>`).join("")}</div>` : ""}
+          <p>Or keep ${esc(label(chosen))} and send your details to join the waitlist. We'll call you to find you a time. Your visit isn't confirmed until we call.</p>
+        </div>` : "");
     box.querySelectorAll(".slot").forEach((b) => (b.onclick = () => {
       chosen = b.dataset.slot;
       $("slot-err").hidden = true;
       renderSlots();
     }));
+    $("submit").textContent = submitText();
   }
+  const isFree = (s) => slots.some((x) => x.slot === s && x.available);
+  // Up to 3 free times closest to the one they wanted.
+  const nearestFree = (s) => !s ? [] : slots.filter((x) => x.available).map((x) => x.slot)
+    .sort((a, b) => Math.abs(toMin(a) - toMin(s)) - Math.abs(toMin(b) - toMin(s))).slice(0, 3).sort((a, b) => toMin(a) - toMin(b));
+  const submitText = () => (chosen && !isFree(chosen) ? "Join the Waitlist" : "Reserve the Visit");
 
   // ---------- Donation note ----------
   function renderPrice() {
@@ -161,7 +173,7 @@
       p_slot: slot, p_waitlist: !!waitlist, p_lang: "en",
     });
     btn.disabled = false;
-    btn.textContent = "Reserve the Visit";
+    btn.textContent = submitText();
     if (error || !data) { console.error(error); return showError("Your booking didn't go through. Check your connection and try again."); }
     if (data.ok) return showDone(data);
     if (data.reason === "full") return showFull(slot, data.suggestions || []);
@@ -172,7 +184,7 @@
   $("form").addEventListener("submit", (e) => {
     e.preventDefault();
     if (!validate()) return;
-    book(chosen, !slots.some((s) => s.available));
+    book(chosen, !isFree(chosen));
   });
 
   function showDone(res) {
@@ -181,14 +193,14 @@
     r.hidden = false;
     r.innerHTML = `
       <p class="eyebrow">${res.waitlist ? "On the waitlist" : "Reservation received"}</p>
-      <h2>${res.waitlist ? "We'll Call If a Place Opens" : "You're on Santa's List!"}</h2>
+      <h2>${res.waitlist ? "We'll Call to Confirm Your Time" : "You're on Santa's List!"}</h2>
       <div class="ticket">
         <span class="label">Booking number</span>
         <span class="ref">${esc(res.ref)}</span>
-        <span class="t">${esc(label(res.slot))} · Christmas Eve</span>
+        <span class="t">${esc(label(res.slot))}${res.waitlist ? " requested" : ""} · Christmas Eve</span>
       </div>
       <p>${res.waitlist
-        ? "That time is full for now. You're on the waitlist, and we'll call you if a place opens up."
+        ? "That time is taken, so you're on the waitlist. We'll call you to find you a time. Your visit isn't confirmed until we call."
         : "Our team will call you before Christmas Eve to confirm. Please keep your booking number."}</p>
       ${config.contact_phone ? `<p>Questions? Call us on <strong>${esc(config.contact_phone)}</strong></p>` : ""}
       <button type="button" class="ghost" id="again">Reserve another visit</button>`;
@@ -203,7 +215,8 @@
     r.innerHTML = `
       <p class="eyebrow">Just taken</p>
       <h2>That Time Has Filled Up</h2>
-      ${suggestions.length ? `<p>These times are still free near you:</p>
+      <p>Someone booked ${esc(label(slot))} just before you. Choose one option:</p>
+      ${suggestions.length ? `<p>Book one of these free times:</p>
         <div class="sugg">${suggestions.map((s) => `<button type="button" class="slot" data-s="${s}"><span class="t">${esc(label(s))}</span></button>`).join("")}</div>` : ""}
       <button type="button" class="ghost" id="wl">Join the waitlist for ${esc(label(slot))}</button>`;
     const retry = async (s, wl) => {

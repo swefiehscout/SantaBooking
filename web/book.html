@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Reserve a Visit · Santa Booking</title>
+<meta name="description" content="Reserve a visit from Santa on Christmas Eve, 24 December.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Cormorant+Garamond:ital,wght@0,500;0,600;1,400;1,500&family=Jost:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="site.css">
+<link rel="icon" href="logo.png">
+</head>
+<body>
+<canvas id="snow" aria-hidden="true"></canvas>
+<div class="garland" aria-hidden="true"></div>
+<div class="wrap">
+  <header class="masthead"></header>
+
+  <section class="hero">
+    <div class="wreath small"><div class="disc"><img src="logo.png" alt=""></div></div>
+    <p class="eyebrow" id="date-tag">Christmas Eve · 24 December</p>
+    <h1>Reserve <em>a Visit</em></h1>
+    <span class="flourish"></span>
+    <p class="lede">Tell us where to find you and choose a time. Our team will call you to confirm before Christmas Eve.</p>
+  </section>
+
+  <div id="loading" class="closed"><p>Opening Santa's diary…</p></div>
+
+  <div id="closed" class="closed" hidden>
+    <h2>Bookings Are Closed</h2>
+    <p>All visits for this Christmas Eve are booked or closed. Thank you for your love.</p>
+    <p id="closed-contact"></p>
+  </div>
+
+  <form id="form" class="card narrow" novalidate hidden>
+    <fieldset>
+      <legend><span class="n">I</span><span class="tt">Where Should Santa Go?</span></legend>
+      <div class="field">
+        <label class="req" for="area">Area</label>
+        <select id="area" name="area" required></select>
+      </div>
+      <div class="field">
+        <span class="label req">Mark your home on the map</span>
+        <div id="map"></div>
+        <div class="map-tools">
+          <span class="pin-state" id="pin-state">Tap the map to place a pin on your home.</span>
+          <button type="button" class="ghost" id="locate">Use my current location</button>
+        </div>
+        <span class="err" id="pin-err" hidden>Please place a pin on your home.</span>
+      </div>
+      <div class="field">
+        <label class="req" for="maps">Google Maps link to your home</label>
+        <input id="maps" name="maps" inputmode="url" placeholder="Paste the link from Google Maps → Share">
+        <span class="hint" id="maps-hint">In Google Maps, tap your home, then Share, then Copy link.</span>
+        <span class="err" id="maps-err" hidden>Please paste a Google Maps link to your home.</span>
+      </div>
+      <div class="field">
+        <label for="address">Building, floor &amp; directions</label>
+        <input id="address" name="address" autocomplete="street-address" placeholder="Building 12, 3rd floor, next to the pharmacy">
+      </div>
+    </fieldset>
+
+    <hr class="sep">
+
+    <fieldset>
+      <legend><span class="n">II</span><span class="tt">Choose a Time</span></legend>
+      <div class="slots" id="slots" role="group" aria-label="Visit times"></div>
+      <span class="err" id="slot-err" hidden>Please choose a time.</span>
+    </fieldset>
+
+    <hr class="sep">
+
+    <fieldset>
+      <legend><span class="n">III</span><span class="tt">Your Details</span></legend>
+      <div class="row two">
+        <div class="field">
+          <label class="req" for="name">Full name</label>
+          <input id="name" name="name" autocomplete="name" required>
+        </div>
+        <div class="field">
+          <label class="req" for="phone">Mobile number</label>
+          <input id="phone" name="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="07X XXX XXXX" required>
+        </div>
+      </div>
+      <span class="err" id="phone-err" hidden>Enter a Jordanian mobile number, like 0791234567.</span>
+      <div class="field">
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" autocomplete="email" placeholder="Optional">
+      </div>
+      <div class="row two">
+        <div class="field">
+          <label for="gift">A message for Santa</label>
+          <textarea id="gift" name="gift" rows="3" placeholder="Children's names, a wish, a gift to hand over"></textarea>
+        </div>
+        <div class="field">
+          <label for="notes">Anything else?</label>
+          <textarea id="notes" name="notes" rows="3" placeholder="Optional"></textarea>
+        </div>
+      </div>
+    </fieldset>
+
+    <hr class="sep">
+
+    <fieldset>
+      <legend><span class="n">IV</span><span class="tt">How Will You Donate? <span style="color:var(--gold);font-size:12px;vertical-align:4px">✦</span></span></legend>
+      <div class="pay">
+        <label><input type="radio" name="pay" value="cash"><span>Cash on the visit</span></label>
+        <label><input type="radio" name="pay" value="cliq"><span>CliQ</span></label>
+        <label><input type="radio" name="pay" value="transfer"><span>Bank transfer</span></label>
+      </div>
+      <span class="err" id="pay-err" hidden>Please choose how you will donate.</span>
+      <div class="price" id="price" hidden></div>
+    </fieldset>
+
+    <div class="form-error" id="form-error" hidden></div>
+    <button class="submit" id="submit" type="submit">Reserve the Visit</button>
+  </form>
+
+  <section id="result" class="card narrow result" hidden aria-live="polite"></section>
+
+  <footer class="foot"></footer>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="config.js"></script>
+<script src="demo.js"></script>
+<script src="shared.js"></script>
+<script src="book.js"></script>
+</body>
+</html>

@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Santa Booking</title>
+<meta name="description" content="Santa and the Swefieh Orthodox Scouts visit homes across Amman on Christmas Eve. Reserve your visit online.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Cormorant+Garamond:ital,wght@0,500;0,600;1,400;1,500&family=Jost:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="site.css">
+<link rel="icon" href="logo.png">
+</head>
+<body>
+<canvas id="snow" aria-hidden="true"></canvas>
+<div class="garland" aria-hidden="true"></div>
+<div class="wrap">
+  <header class="masthead"></header>
+
+  <section class="hero">
+    <div class="wreath big"><div class="disc"><img src="logo.png" alt="Greek Orthodox Scouts &amp; Guides – Swefieh badge"></div></div>
+    <p class="eyebrow">The Swefieh Orthodox Scouts present</p>
+    <h1>Santa's <em>Christmas Eve</em> Visits</h1>
+    <span class="flourish"></span>
+    <p class="lede">On the most magical night of the year, Santa and our scouts come to your door with carols, joy, and the gift you have prepared for your little ones.</p>
+  </section>
+
+  <div class="trio">
+    <div class="side"><b id="f-day">Thursday</b><span>Christmas Eve</span></div>
+    <div class="mid"><b id="f-num">24</b><span id="f-month">December</span></div>
+    <div class="side"><b id="f-hours">3:00 – 10:30 PM</b><span>Visiting hours</span></div>
+  </div>
+
+  <div class="cta-frame">
+    <p class="note" id="cta-note">Places are limited on the night. Reserve early.</p>
+    <a class="btn-gold big" id="cta" href="book.html">Reserve Santa's Visit</a>
+    <div class="closed" id="closed" hidden><p>Bookings for this Christmas Eve are now closed.</p></div>
+    <a class="textlink" href="contact.html">Questions? Write to us</a>
+  </div>
+
+  <section class="section-head">
+    <p class="eyebrow">How it works</p>
+    <h2>Three Steps to a Magical Night</h2>
+    <span class="flourish"></span>
+  </section>
+
+  <div class="steps">
+    <div class="step"><span class="n">I</span><h3>Reserve Online</h3><p>Choose your area, mark your home on the map, and pick a free half hour. It takes two minutes.</p></div>
+    <div class="step"><span class="n">II</span><h3>We Call to Confirm</h3><p>A scout leader calls you before Christmas Eve to confirm your time and arrange your gift.</p></div>
+    <div class="step"><span class="n">III</span><h3>Santa Knocks</h3><p>On the night, Santa arrives with his scouts, greets the children by name and hands over your gift.</p></div>
+  </div>
+
+  <footer class="foot"></footer>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<script src="demo.js"></script>
+<script src="shared.js"></script>
+<script>
+(function () {
+  const { sb, clock, page } = window.Santa;
+  page("index");
+  sb.rpc("public_config").then(({ data }) => {
+    if (!data) return;
+    const d = new Date(data.event_date + "T12:00:00");
+    document.getElementById("f-day").textContent = d.toLocaleDateString("en-GB", { weekday: "long" });
+    document.getElementById("f-num").textContent = d.getDate();
+    document.getElementById("f-month").textContent = d.toLocaleDateString("en-GB", { month: "long" });
+    const [a] = clock(data.start_time).split(" ");
+    document.getElementById("f-hours").textContent = `${a} – ${clock(data.end_time)}`;
+    document.getElementById("cta").hidden = !data.open;
+    document.getElementById("closed").hidden = data.open;
+    document.getElementById("cta-note").hidden = !data.open;
+  });
+})();
+</script>
+</body>
+</html>

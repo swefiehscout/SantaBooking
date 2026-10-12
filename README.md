@@ -19,7 +19,7 @@ Open http://localhost:8080
 
 ## Go live
 
-1. **Supabase**: in the "Santa Booking" project, open SQL Editor and run `supabase/schema.sql`, then `supabase/seed.sql`.
+1. **Supabase**: in the "Santa Booking" project, open SQL Editor and run `supabase/schema.sql`, then `supabase/seed.sql`, then `supabase/activity_log.sql`.
 2. **Admin login**: go to Authentication → Users → Add user, and pick an email and the team password (tick "Auto confirm"). Then go to Authentication → Providers → Email and turn off "Allow new users to sign up".
 3. **Keys**: go to Project Settings → API. Copy the Project URL and the `anon` public key into `web/config.js`, and set `ADMIN_EMAIL` to the email from step 2.
 4. **Make that email an admin**: in SQL Editor, run

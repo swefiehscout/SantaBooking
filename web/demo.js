@@ -1,9 +1,10 @@
-// DEMO MODE — used only while config.js still has the placeholder Supabase URL.
+// DEMO MODE — used while config.js still has the placeholder Supabase URL, or when
+// an owner presses "Demo mode" on the admin page.
 // Imitates the Supabase calls the site makes, storing everything in this browser
 // (localStorage). Any password works on the admin page. Delete nothing; it switches
 // itself off as soon as real keys are in config.js.
 (function () {
-  const KEY = "santa-demo-db-v12";
+  const KEY = "santa-demo-db-v13";
   const AREAS = [
     ["1st Circle", "", 6, 31.9515, 35.9239],
     ["2nd Circle", "", 6, 31.954, 35.918],
@@ -65,19 +66,52 @@
       slot_overrides: [], bookings: [], booking_history: [], messages: [], activity_log: [], seq: 1001, logSeq: 1,
       admins: [{ email: "owner@santa.team", name: "Owner (demo)", is_owner: true }, { email: "sara@santa.team", name: "Sara (demo)", is_owner: false }],
     };
-    // A few clearly-marked example bookings so the board isn't empty.
-    const aid = (n) => db.areas.find((a) => a.name_en === n).id;
-    const ex = [["Demo family A", "Abdoun", "16:00", 1, "new"], ["Demo family B", "Swefieh", "16:30", 1, "confirmed"], ["Demo family C", "Shmeisani", "15:00", 6, "confirmed"],
-      ["Demo family D", "Khalda", "17:00", 4, "new"], ["Demo family E", "Jubeiha", "18:30", 7, "done"], ["Demo family F", "Rabieh", "19:00", 5, "new"],
-      ["Demo family G", "Abdoun", "16:00", null, "waitlist"]].map(([n, a, ...r]) => [n, aid(a), ...r]);
-    ex.forEach(([name, area, slot, car, status], i) => db.bookings.push({
-      id: uuid(), ref: "S" + db.seq++, created_at: now(), updated_at: now(), updated_by: "public form", name, phone: "079000000" + i,
-      email: "", area_id: area, lat: +(db.areas.find((x) => x.id === area).lat + (i % 3 - 1) * 0.003).toFixed(5),
-      lng: +(db.areas.find((x) => x.id === area).lng + ((i + 1) % 3 - 1) * 0.003).toFixed(5), maps_link: "https://maps.google.com/?q=demo", address_details: "Example address", gift_message: i % 2 ? "Example gift note" : "",
-      notes: "", payment_method: ["cash", "cliq", "transfer"][i % 3], paid: i % 3 === 1, amount: null, preferred_time: slot + ":00",
-      slot_time: car ? slot + ":00" : null, car_id: car, status, admin_notes: "", lang: "en",
-    }));
-    db.messages.push({ id: uuid(), created_at: now(), name: "Demo visitor", phone: "0790000009", email: "", message: "Example message from the contact page.", handled: false });
+    // A full sample night so the board, lists and driver sheets look real.
+    // Seeded, so "reset" always rebuilds the same night.
+    let seed = 24;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    const pick = (arr) => arr[Math.floor(rnd() * arr.length)];
+    const DRIVERS = [["Elias", "0790000101"], ["Rami", "0790000102"], ["Nadia", "0790000103"], ["George", "0790000104"],
+      ["Hanna", "0790000105"], ["Maya", "0790000106"], ["Fadi", "0790000107"], ["Lina", "0790000108"]];
+    db.cars.forEach((c, i) => Object.assign(c, { driver: DRIVERS[i][0], phone: DRIVERS[i][1] }));
+    const FAMILIES = ["Haddad", "Khoury", "Nasr", "Saba", "Matar", "Hanna", "Farah", "Azar", "Salameh", "Kawar", "Twal", "Halaseh",
+      "Akroush", "Sawalha", "Bandak", "Qaqish", "Shaheen", "Daoud", "Zaghloul", "Abu Jaber", "Malhas", "Hijazin", "Mdanat", "Ammari",
+      "Sahawneh", "Nimri", "Hamarneh", "Sunna", "Dababneh", "Rizk", "Asfour", "Atallah", "Bisharat", "Shomali", "Sweis", "Gharib"];
+    const KIDS = ["Yara", "Elias", "Lea", "Karim", "Tala", "Jad", "Maria", "George", "Sama", "Adam", "Celine", "Issa", "Rita", "Majd", "Nour", "Tia"];
+    const GIFTS = ["", "", "", "Bike for %k, it's hidden in the garage", "Doll house for %k", "%k has been very good this year, please mention school",
+      "Two gifts, one for %k and one for the baby", "Football for %k", "%k is shy, please be gentle", "Lego set for %k, wrapped in red"];
+    const NOTES = ["", "", "", "", "Ring twice, the bell is quiet", "Building has no elevator", "Grandparents visiting, 9 kids total", "Please park on the side street"];
+    const ADDR = ["Building 12, 2nd floor", "Villa next to the pharmacy", "Ground floor, green door", "Building 7, apt 4", "Behind the church, white villa", "3rd floor, apt 9"];
+    const slots = ["15:00", "15:30", "16:00", "16:30", "17:00", "17:30", "18:00", "18:30", "19:00", "19:30", "20:00", "20:30", "21:00", "21:30", "22:00"];
+    const day = (d, h) => new Date(Date.now() - d * 864e5 - h * 36e5).toISOString();
+    const add = (fam, areaName, slot, car, status, ago) => {
+      const a = db.areas.find((x) => x.name_en === areaName);
+      const kid = pick(KIDS), i = db.bookings.length;
+      db.bookings.push({
+        id: uuid(), ref: "S" + db.seq++, created_at: day(ago, rnd() * 20), updated_at: day(ago / 2, 1), updated_by: status === "new" ? "public form" : pick(["Sara (demo)", "Owner (demo)"]),
+        name: `${fam} family`, phone: "079" + String(1000000 + i * 7919).slice(-7), email: "", area_id: a.id,
+        lat: +(a.lat + (rnd() - 0.5) * 0.008).toFixed(5), lng: +(a.lng + (rnd() - 0.5) * 0.008).toFixed(5),
+        maps_link: "https://maps.google.com/?q=demo", address_details: pick(ADDR), gift_message: pick(GIFTS).replace("%k", kid),
+        notes: pick(NOTES), payment_method: pick(["cash", "cash", "cliq", "transfer"]), paid: status === "confirmed" && rnd() < 0.7, amount: null,
+        preferred_time: slot + ":00", slot_time: car ? slot + ":00" : null, car_id: car, status, admin_notes: "", lang: rnd() < 0.4 ? "ar" : "en",
+      });
+    };
+    let f = 0;
+    const fam = () => FAMILIES[f++ % FAMILIES.length] + (f > FAMILIES.length ? " " + String.fromCharCode(64 + Math.ceil(f / FAMILIES.length)) : "");
+    db.cars.forEach((c) => {
+      const zone = db.areas.filter((a) => a.car_id === c.id).map((a) => a.name_en);
+      slots.forEach((slot, si) => {
+        // Early evening fills up first; leave some gaps so there's room to show live booking.
+        if (rnd() > (si < 10 ? 0.75 : 0.45)) return;
+        add(fam(), pick(zone), slot, c.id, rnd() < 0.6 ? "confirmed" : "new", 2 + Math.floor(rnd() * 25));
+      });
+    });
+    ["Abdoun", "Swefieh", "Khalda", "Shmeisani"].forEach((a, i) => add(fam(), a, slots[2 + i], null, "waitlist", 1));
+    ["Dabouq", "Jubeiha"].forEach((a, i) => add(fam(), a, slots[5 + i], null, "cancelled", 10));
+    [["Rana", "Do you visit Fuheis too?"], ["Michel", "Can Santa speak Arabic with the kids?"], ["Dana", "We'd like to change our time to later, ref S1012."]]
+      .forEach(([name, message], i) => db.messages.push({ id: uuid(), created_at: day(i + 1, 3), name, phone: "079000020" + i, email: "", message, handled: i === 2 }));
+    db.bookings.slice(0, 12).forEach((b, i) => db.activity_log.push({ id: db.logSeq++, at: day(i * 0.5, 2), actor: i % 3 ? "Sara (demo)" : "Owner (demo)",
+      action: "changed", entity: "booking", entity_id: b.id, label: `${b.ref} · ${b.name}`, changes: { status: ["new", b.status] } }));
     return db;
   }
   let db;
@@ -278,7 +312,11 @@
   }
 
   let session = null;
-  try { const em = sessionStorage.getItem("santa-demo-session"); session = em ? { user: { email: em } } : null; } catch (e) {}
+  try {
+    // Opened from the owner's "Demo mode" button: already signed in as the demo owner.
+    if (sessionStorage.getItem("santa-demo") === "1" && !sessionStorage.getItem("santa-demo-session")) sessionStorage.setItem("santa-demo-session", "owner@santa.team");
+    const em = sessionStorage.getItem("santa-demo-session"); session = em ? { user: { email: em } } : null;
+  } catch (e) {}
   window.SantaDemo = {
     createClient() {
       return {

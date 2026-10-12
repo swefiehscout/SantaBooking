@@ -78,6 +78,7 @@ h3 { margin: 0; font-size: 16px; font-weight: 600; }
 .brand b { display: block; font-size: 17px; line-height: 1.15; }
 .brand span { font-size: 12.5px; color: var(--muted); }
 .side .add { width: 100%; margin: 4px 0 12px; }
+.side .js-demo { margin-bottom: 0; }
 .navgroup { display: grid; gap: 2px; }
 .navlabel { font-size: 11.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); padding: 14px 10px 6px; font-weight: 600; }
 .tab {
@@ -339,6 +340,7 @@ pre.wa { white-space: pre-wrap; background: var(--bg); border-radius: 10px; padd
 <div id="app" class="shell" hidden>
   <aside class="side">
     <div class="brand"><img src="logo.png" alt=""><div><b>Santa Booking</b><span class="bar-date"></span></div></div>
+    <button class="btn add js-demo" hidden>▶ Demo mode</button>
     <button class="btn primary add js-add">+ Add booking</button>
     <div class="navlabel" style="padding-top:2px">Before the night</div>
     <nav class="navgroup" aria-label="Before the night">

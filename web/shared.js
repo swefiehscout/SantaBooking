@@ -1,8 +1,11 @@
 // Helpers used by the public pages and the admin dashboard.
 (function () {
   const cfg = window.SANTA_CONFIG;
-  // Until real Supabase keys are in config.js, run on sample data in this browser (demo.js).
-  const demo = /YOUR-PROJECT/.test(cfg.SUPABASE_URL) && window.SantaDemo;
+  // Run on sample data in this browser (demo.js) until real Supabase keys are in config.js,
+  // or when an owner presses "Demo mode" on the admin page (for presentations; real data is never touched).
+  let asked = false;
+  try { asked = /\/admin(\.html)?$/.test(location.pathname) && sessionStorage.getItem("santa-demo") === "1"; } catch (e) {}
+  const demo = (/YOUR-PROJECT/.test(cfg.SUPABASE_URL) || asked) && window.SantaDemo;
   const sb = demo ? window.SantaDemo.createClient() : window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
   if (demo) addEventListener("DOMContentLoaded", () => {
     const tag = document.createElement("div");
@@ -271,5 +274,5 @@
     })();
   }
 
-  window.Santa = { cfg, sb, toMin, fromMin, clock, slotLabel, normPhone, waNumber, km, esc, mapsUrl, navUrl, page, parseMapsLink, isShortMapsLink, pinPicker };
+  window.Santa = { cfg, sb, demo: !!demo, toMin, fromMin, clock, slotLabel, normPhone, waNumber, km, esc, mapsUrl, navUrl, page, parseMapsLink, isShortMapsLink, pinPicker };
 })();

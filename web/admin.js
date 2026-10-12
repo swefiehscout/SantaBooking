@@ -1201,6 +1201,11 @@
     // Only owners see the Activity log (the database also refuses it to everyone else).
     S.isOwner = !!mine?.is_owner;
     document.querySelectorAll('[data-tab="activity"]').forEach((el) => (el.hidden = !S.isOwner));
+    document.querySelectorAll(".js-demo").forEach((el) => {
+      el.hidden = !S.isOwner;
+      el.textContent = Santa.demo ? "■ Exit demo" : "▶ Demo mode";
+      el.onclick = toggleDemo;
+    });
     window.__santaActor = S.me;
     document.querySelectorAll(".who").forEach((el) => (el.textContent = "Signed in as " + S.me));
     $("login-view").hidden = true;
@@ -1236,15 +1241,25 @@
     await enter();
     logEvent("signed in", "Signed in");
   });
-  const signOut = async () => { await logEvent("signed out", "Signed out"); await sb.auth.signOut(); location.reload(); };
+  // Owners only: switch this tab to the sample night for presentations, and back. Real data is never touched.
+  function toggleDemo() {
+    try {
+      if (Santa.demo) { sessionStorage.removeItem("santa-demo"); sessionStorage.removeItem("santa-demo-session"); }
+      else sessionStorage.setItem("santa-demo", "1");
+    } catch (e) {}
+    location.reload();
+  }
+  const signOut = async () => {
+    if (Santa.demo) return toggleDemo(); await logEvent("signed out", "Signed out"); await sb.auth.signOut(); location.reload(); };
   document.querySelectorAll(".js-logout").forEach((b) => (b.onclick = signOut));
   // Phone: the "More" tab opens the remaining sections.
   document.querySelector("[data-more]").onclick = () => modal("More", `<div class="menu">
       <button class="btn" data-m="routes">Route map</button><button class="btn" data-m="print">Print sheets</button>
       <button class="btn" data-m="messages">Messages${S.messages.filter((m) => !m.handled).length ? ` (${S.messages.filter((m) => !m.handled).length} new)` : ""}</button>
-      <button class="btn" data-m="setup">Setup</button>${S.isOwner ? `<button class="btn" data-m="activity">Activity log</button>` : ""}<button class="btn danger js-out2">Sign out</button></div>`, "", (close) => {
+      <button class="btn" data-m="setup">Setup</button>${S.isOwner ? `<button class="btn" data-m="activity">Activity log</button><button class="btn js-demo2">${Santa.demo ? "■ Exit demo" : "▶ Demo mode"}</button>` : ""}<button class="btn danger js-out2">Sign out</button></div>`, "", (close) => {
     document.querySelectorAll("[data-m]").forEach((b) => (b.onclick = () => { close(); S.tab = b.dataset.m; render(); scrollTo(0, 0); }));
     document.querySelector(".js-out2").onclick = signOut;
+    if (document.querySelector(".js-demo2")) document.querySelector(".js-demo2").onclick = toggleDemo;
   });
   document.querySelectorAll(".tab[data-tab]").forEach((t) => (t.onclick = () => { S.tab = t.dataset.tab; render(); scrollTo(0, 0); }));
 

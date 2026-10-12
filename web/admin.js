@@ -11,6 +11,7 @@
   const S = {
     me: "", tab: "bookings", settings: null, cars: [], areas: [], overrides: [], bookings: [], messages: [],
     search: "", filter: "all",
+    log: null, logMore: false, logF: { q: "", kind: "all", who: "" },
     schedView: null, schedCar: null,   // null = pick by screen width
     moving: null,            // booking id being moved by tapping
     routeCar: null, donCar: null, printCar: null,
@@ -29,7 +30,10 @@
   const areaName = (id) => areaById(id)?.name_en || "—";
   const bookingById = (id) => S.bookings.find((b) => b.id === id);
   const activeCars = () => S.cars.filter((c) => c.active).sort((a, b) => a.sort - b.sort || a.id - b.id);
-  const dateTime = (iso) => new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  // All timestamps are shown in Jordan time, whatever the viewer's device is set to.
+  const TZ = "Asia/Amman";
+  const dateTime = (iso) => new Date(iso).toLocaleString("en-GB", { timeZone: TZ, day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  const todayJo = () => new Date().toLocaleDateString("en-CA", { timeZone: TZ });   // 2026-12-24
   const jd = (n) => `${Number(n || 0).toLocaleString("en-GB", { maximumFractionDigits: 2 })} JD`;
 
   // A car's own hours (or the night's).
@@ -248,7 +252,7 @@
     const focusId = document.activeElement?.id;
     const scroll = document.querySelector(".grid-wrap")?.scrollTop;
     ({ bookings: viewBookings, schedule: viewSchedule, waitlist: viewWaitlist, routes: viewRoutes,
-       donations: viewDonations, print: viewPrint, messages: viewMessages, setup: viewSetup })[S.tab]();
+       donations: viewDonations, print: viewPrint, messages: viewMessages, setup: viewSetup, activity: viewActivity })[S.tab]();
     if (scroll != null && document.querySelector(".grid-wrap")) document.querySelector(".grid-wrap").scrollTop = scroll;
     if (focusId?.startsWith("keep-") && $(focusId)) { const el = $(focusId); el.focus(); el.setSelectionRange?.(el.value.length, el.value.length); }
   }
@@ -617,6 +621,7 @@
     });
   }
   function exportDonations() {
+    logEvent("exported", "Exported donations to Excel");
     const rows = S.bookings.filter((b) => ACTIVE.includes(b.status)).sort((a, b) => (a.car_id || 99) - (b.car_id || 99) || toMin(hhmm(a.slot_time) || "23:59") - toMin(hhmm(b.slot_time) || "23:59"))
       .map((b) => ({ Car: carName(b.car_id), Time: b.slot_time ? label(hhmm(b.slot_time)) : "", Family: b.name, Phone: b.phone, Area: areaName(b.area_id), Ref: b.ref,
         "Said they'd give by": PAY[b.payment_method], "Amount (JD)": b.amount ?? "", "Gave by": b.amount ? PAY[b.donation_method || b.payment_method] : "", "Collected by": b.amount ? carName(b.collected_by ?? b.car_id) : "" }));
@@ -628,7 +633,7 @@
       ...Object.entries(PAY).map(([k, v]) => ({ What: v, "Amount (JD)": sum((b) => (b.donation_method || b.payment_method) === k) })),
       ...activeCars().map((c) => ({ What: c.name, "Amount (JD)": sum((b) => (b.collected_by ?? b.car_id) === c.id) }))];
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(totals), "Totals");
-    XLSX.writeFile(wb, `santa-donations-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    XLSX.writeFile(wb, `santa-donations-${todayJo()}.xlsx`);
   }
 
   // ===== Print (driver sheets) =====
@@ -662,11 +667,12 @@
     $("print-all").onclick = () => printCars(activeCars());
     $("xls").onclick = exportAll;
     $("copy-wa").onclick = async () => {
-      try { await navigator.clipboard.writeText(waText(car)); toast("Copied. Paste it in WhatsApp."); }
+      try { await navigator.clipboard.writeText(waText(car)); toast("Copied. Paste it in WhatsApp."); logEvent("copied", `Copied the WhatsApp route for ${car.name}`); }
       catch (e) { const r = document.createRange(); r.selectNodeContents($("wa-text")); getSelection().removeAllRanges(); getSelection().addRange(r); toast("Selected. Press Cmd/Ctrl+C to copy."); }
     };
   }
   function printCars(cars) {
+    logEvent("printed", `Printed driver sheets: ${cars.map((c) => c.name).join(", ")}`);
     $("print-area").innerHTML = cars.map((c) => `<div class="print-car">
       <h2>${esc(c.name)}</h2><p>${esc(c.driver || "")} ${esc(c.phone || "")} · Christmas Eve ${esc(S.settings.event_date)}</p>
       <table><thead><tr><th>Time</th><th>Family</th><th>Phone</th><th>Area / address</th><th>Gift &amp; notes</th><th>Donation</th><th>Received (JD)</th></tr></thead><tbody>
@@ -677,6 +683,7 @@
     window.print();
   }
   function exportAll() {
+    logEvent("exported", "Exported all bookings to Excel");
     const row = (b) => ({
       Ref: b.ref, Time: b.slot_time ? label(hhmm(b.slot_time)) : "", Car: b.car_id ? carName(b.car_id) : "", Status: STATUS[b.status],
       Name: b.name, Phone: b.phone, Email: b.email, Area: areaName(b.area_id), Address: b.address_details, Directions: b.lat != null ? navUrl(b) : "", "Family's map link": b.maps_link,
@@ -687,7 +694,124 @@
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(S.bookings.map(row)), "All bookings");
     for (const c of activeCars()) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(route(c.id).map(row)), c.name.slice(0, 31));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(S.bookings.filter((b) => b.status === "waitlist").map(row)), "Waitlist");
-    XLSX.writeFile(wb, `santa-bookings-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    XLSX.writeFile(wb, `santa-bookings-${todayJo()}.xlsx`);
+  }
+
+  // ===== Activity log (read-only) =====
+  const LOG_FIELDS = {
+    car_id: "car", slot_time: "time", area_id: "area", preferred_time: "wanted time", payment_method: "donation method",
+    amount: "donation (JD)", donation_method: "gave by", collected_by: "collected by", admin_notes: "team notes",
+    gift_message: "message for Santa", address_details: "address", maps_link: "Google Maps link", lat: "pin latitude", lng: "pin longitude",
+    name_en: "name", name_ar: "Arabic name", start_time: "starts", end_time: "ends", sort: "column position", active: "running",
+    event_date: "date", slot_minutes: "minutes per visit", default_capacity: "visits per car", cutoff_hours: "booking cutoff (hours)",
+    borrow_km: "help distance (km)", booking_open: "booking form open", contact_phone: "contact phone", cliq_alias: "CliQ alias",
+    price_note: "donation note", blocked: "blocked", capacity: "visits allowed", handled: "replied", paid: "donation received",
+  };
+  const HIDE_FIELDS = new Set(["id", "created_at", "updated_at", "updated_by", "lang", "ref", "name_ar"]);
+  const who = (a) => { if (a === "Website") return "Website visitor"; try { return decodeURIComponent(a); } catch (e) { return a; } };
+  function fieldValue(k, v) {
+    if (v == null || v === "") return "—";
+    if (k === "car_id" || k === "collected_by") return carName(v);
+    if (k === "area_id") return areaName(v);
+    if (k === "status") return STATUS[v] || v;
+    if (/_time$/.test(k)) return shortTime(hhmm(v));
+    if (k === "payment_method" || k === "donation_method") return PAY[v] || v;
+    if (typeof v === "boolean") return v ? "yes" : "no";
+    return String(v);
+  }
+  const fieldLabel = (k) => LOG_FIELDS[k] || k.replace(/_/g, " ");
+  function logSentence(r) {
+    const c = r.changes || {}, lbl = esc(r.label || "");
+    const bk = r.entity === "booking" && r.entity_id && bookingById(r.entity_id) ? `<button class="btn link" data-open="${r.entity_id}">${lbl}</button>` : `<b>${lbl}</b>`;
+    switch (r.entity) {
+      case "booking":
+        if (r.action === "created") return r.actor === "Website" ? `booked a visit: ${bk}` : `added a booking: ${bk}`;
+        if (r.action === "deleted") return `deleted the booking ${bk}`;
+        if (c.status && Object.keys(c).length === 1) return `marked ${bk} as <b>${esc(STATUS[c.status[1]] || c.status[1])}</b>`;
+        if ((c.car_id || c.slot_time) && Object.keys(c).every((k) => ["car_id", "slot_time", "status"].includes(k))) return `moved ${bk}`;
+        if (c.amount || c.donation_method || c.collected_by) return `recorded a donation for ${bk}`;
+        return `changed ${bk}`;
+      case "time slot":
+        if (r.action !== "changed") return c.blocked ? `${r.action === "deleted" ? "reset" : "blocked"} <b>${lbl}</b>` : `changed how many visits <b>${lbl}</b> allows`;
+        if (Array.isArray(c.blocked)) return `${c.blocked[1] ? "blocked" : "unblocked"} <b>${lbl}</b>`;
+        return `changed how many visits <b>${lbl}</b> allows`;
+      case "car": return r.action === "created" ? `added <b>${lbl}</b>` : r.action === "deleted" ? `removed <b>${lbl}</b>` : `changed <b>${lbl}</b>`;
+      case "area": return r.action === "created" ? `added the area <b>${lbl}</b>` : r.action === "deleted" ? `removed the area <b>${lbl}</b>` : `changed the area <b>${lbl}</b>`;
+      case "settings": return `changed the night settings`;
+      case "message":
+        if (r.action === "created") return `sent a message on the Contact page (<b>${esc(c.name || "")}</b>)`;
+        if (c.handled) return `marked the ${lbl.toLowerCase()} as ${c.handled[1] ? "replied" : "not replied"}`;
+        return `${r.action} the ${lbl.toLowerCase()}`;
+      case "team": return esc(r.label || r.action);
+      default: return `${esc(r.action)} ${esc(r.entity)} ${lbl}`;
+    }
+  }
+  function logDetails(r) {
+    const c = r.changes;
+    if (!c || r.entity === "team") return "";
+    if (r.action === "changed") {
+      return Object.entries(c).filter(([k, [a, z]]) => !HIDE_FIELDS.has(k) && fieldValue(k, a) !== fieldValue(k, z)).map(([k, [a, z]]) =>
+        `<div>${esc(fieldLabel(k))}: <span class="muted">${esc(fieldValue(k, a))}</span> → <b>${esc(fieldValue(k, z))}</b></div>`).join("");
+    }
+    // created / deleted: show the useful fields of the record
+    const keys = r.entity === "booking" ? ["phone", "area_id", "slot_time", "car_id", "status", "payment_method", "preferred_time"]
+      : r.entity === "message" ? ["phone", "email", "message"] : Object.keys(c).filter((k) => !HIDE_FIELDS.has(k));
+    return `<div>${keys.filter((k) => c[k] != null && c[k] !== "").map((k) => `${esc(fieldLabel(k))}: <b>${esc(fieldValue(k, c[k]))}</b>`).join(" · ")}</div>`;
+  }
+  const LOG_KINDS = { all: "Everything", booking: "Bookings", "time slot": "Blocked times & visits allowed", car: "Cars", area: "Areas", settings: "Night settings", message: "Messages", team: "Sign-ins, prints & exports" };
+  async function loadLog(older) {
+    let q = sb.from("activity_log").select("*").order("id", { ascending: false }).limit(500);
+    if (older && S.log.length) q = q.lt("id", S.log[S.log.length - 1].id);
+    const { data, error } = await q;
+    if (error) { toast("Couldn't load the activity log: " + error.message); return; }
+    S.log = older ? S.log.concat(data) : data;
+    S.logMore = data.length === 500;
+    render();
+  }
+  async function logEvent(action, label) {
+    await sb.from("activity_log").insert({ actor: S.me, action, entity: "team", label });
+  }
+  function viewActivity() {
+    if (!S.log) { $("main").innerHTML = intro("Activity log", "Loading…"); loadLog(); return; }
+    const f = S.logF;
+    const actors = [...new Set(S.log.map((r) => who(r.actor)))].sort();
+    const qtext = f.q.trim().toLowerCase();
+    const rows = S.log.filter((r) => (f.kind === "all" || r.entity === f.kind) && (!f.who || who(r.actor) === f.who) &&
+      (!qtext || [r.label, who(r.actor), r.action, JSON.stringify(r.changes || {})].join(" ").toLowerCase().includes(qtext)));
+    const day = (iso) => new Date(iso).toLocaleDateString("en-GB", { timeZone: TZ, weekday: "long", day: "numeric", month: "long", year: "numeric" });
+    let last = "", html = "";
+    for (const r of rows) {
+      const d = day(r.at);
+      if (d !== last) { html += `<h3 class="logday">${esc(d)}</h3>`; last = d; }
+      const det = logDetails(r);
+      html += `<div class="logrow ${r.action}"><span class="logtime num">${esc(new Date(r.at).toLocaleTimeString("en-GB", { timeZone: TZ, hour: "2-digit", minute: "2-digit", second: "2-digit" }))}</span>
+        <div><div><b class="${r.actor === "Website" ? "web" : ""}">${esc(who(r.actor))}</b> ${logSentence(r)}</div>${det ? `<div class="logdet">${det}</div>` : ""}</div></div>`;
+    }
+    $("main").innerHTML = intro("Activity log", "Everything that has happened, newest first: who did it, what changed, and when (Jordan time). Nobody can edit or delete this log.") + `
+      <div class="row">
+        <input class="grow" id="keep-logq" type="search" placeholder="Search names, booking numbers, changes…" value="${esc(f.q)}">
+        <select id="log-kind" style="width:auto">${Object.entries(LOG_KINDS).map(([k, v]) => `<option value="${esc(k)}" ${f.kind === k ? "selected" : ""}>${v}</option>`).join("")}</select>
+        <select id="log-who" style="width:auto"><option value="">Everyone</option>${actors.map((a) => `<option ${f.who === a ? "selected" : ""}>${esc(a)}</option>`).join("")}</select>
+        <button class="btn" id="log-refresh">Refresh</button><button class="btn" id="log-xls">Export to Excel</button>
+      </div>
+      <div class="panel" style="gap:0">${html || `<div class="empty" style="border:0">Nothing matches.</div>`}</div>
+      ${S.logMore ? `<div><button class="btn" id="log-older">Load older activity</button></div>` : ""}
+      <p class="muted" style="margin:0;font-size:13px">Showing ${rows.length} of ${S.log.length} entries loaded.</p>`;
+    $("keep-logq").oninput = (e) => { f.q = e.target.value; render(); };
+    $("log-kind").onchange = (e) => { f.kind = e.target.value; render(); };
+    $("log-who").onchange = (e) => { f.who = e.target.value; render(); };
+    $("log-refresh").onclick = () => loadLog();
+    if ($("log-older")) $("log-older").onclick = () => loadLog(true);
+    $("log-xls").onclick = () => {
+      const strip = (h) => h.replace(/<[^>]*>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+      const out = rows.map((r) => ({ Date: new Date(r.at).toLocaleDateString("en-GB", { timeZone: TZ }), "Time (Jordan)": new Date(r.at).toLocaleTimeString("en-GB", { timeZone: TZ }), Who: who(r.actor),
+        What: strip(logSentence(r)), Details: strip(logDetails(r).replace(/<\/div><div>/g, "; ")) }));
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(out), "Activity log");
+      XLSX.writeFile(wb, `santa-activity-log-${todayJo()}.xlsx`);
+      logEvent("exported", "Exported the activity log to Excel");
+    };
+    wireCommon();
   }
 
   // ===== Messages =====
@@ -1066,6 +1190,9 @@
     const { data: ok, error } = await sb.rpc("is_admin");
     if (error || !ok) { await sb.auth.signOut(); return showLogin("This account isn't set up for the team yet. See README step 4."); }
     try { S.me = localStorage.getItem("santa-admin-name") || "Team"; } catch (e) { S.me = "Team"; }
+    // Every change this browser makes carries the person's name, so the activity log knows who did it.
+    if (sb.rest?.headers) sb.rest.headers["x-actor"] = encodeURIComponent(S.me);
+    window.__santaActor = S.me;
     document.querySelectorAll(".who").forEach((el) => (el.textContent = "Signed in as " + S.me));
     $("login-view").hidden = true;
     $("app").hidden = false;
@@ -1096,15 +1223,16 @@
     if (error) return showLogin("That password isn't right.");
     try { localStorage.setItem("santa-admin-name", name); } catch (e) {}
     $("login-pass").value = "";
-    enter();
+    await enter();
+    logEvent("signed in", "Signed in");
   });
-  const signOut = async () => { await sb.auth.signOut(); location.reload(); };
+  const signOut = async () => { await logEvent("signed out", "Signed out"); await sb.auth.signOut(); location.reload(); };
   document.querySelectorAll(".js-logout").forEach((b) => (b.onclick = signOut));
   // Phone: the "More" tab opens the remaining sections.
   document.querySelector("[data-more]").onclick = () => modal("More", `<div class="menu">
       <button class="btn" data-m="routes">Route map</button><button class="btn" data-m="print">Print sheets</button>
       <button class="btn" data-m="messages">Messages${S.messages.filter((m) => !m.handled).length ? ` (${S.messages.filter((m) => !m.handled).length} new)` : ""}</button>
-      <button class="btn" data-m="setup">Setup</button><button class="btn danger js-out2">Sign out</button></div>`, "", (close) => {
+      <button class="btn" data-m="setup">Setup</button><button class="btn" data-m="activity">Activity log</button><button class="btn danger js-out2">Sign out</button></div>`, "", (close) => {
     document.querySelectorAll("[data-m]").forEach((b) => (b.onclick = () => { close(); S.tab = b.dataset.m; render(); scrollTo(0, 0); }));
     document.querySelector(".js-out2").onclick = signOut;
   });

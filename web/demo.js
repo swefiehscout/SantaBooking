@@ -3,7 +3,7 @@
 // (localStorage). Any password works on the admin page. Delete nothing; it switches
 // itself off as soon as real keys are in config.js.
 (function () {
-  const KEY = "santa-demo-db-v9";
+  const KEY = "santa-demo-db-v10";
   const AREAS = [
     ["1st Circle", "", 6, 31.9515, 35.9239],
     ["2nd Circle", "", 6, 31.954, 35.918],
@@ -62,7 +62,7 @@
         cliq_alias: "", price_note: "" }],
       cars: Array.from({ length: 8 }, (_, i) => ({ id: i + 1, name: `Car ${i + 1}`, driver: "", phone: "", active: true, sort: i + 1, start_time: null, end_time: null })),
       areas: AREAS.map((a, i) => ({ id: i + 1, name_en: a[0], name_ar: a[1], car_id: a[2], lat: a[3], lng: a[4], active: true, sort: a[0] === "Other" ? 99 : /Circle/.test(a[0]) ? parseInt(a[0]) : 10 })),
-      slot_overrides: [], bookings: [], booking_history: [], messages: [], seq: 1001,
+      slot_overrides: [], bookings: [], booking_history: [], messages: [], activity_log: [], seq: 1001, logSeq: 1,
     };
     // A few clearly-marked example bookings so the board isn't empty.
     const aid = (n) => db.areas.find((a) => a.name_en === n).id;
@@ -176,12 +176,14 @@
         preferred_time: p.p_slot + ":00", slot_time: car ? p.p_slot + ":00" : null, car_id: car, status: car ? "new" : "waitlist",
         admin_notes: "", lang: p.p_lang,
       });
+      logChange("bookings", "insert", [db.bookings[db.bookings.length - 1]]);
       save();
       return { ok: true, ref, waitlist: car == null, slot: p.p_slot };
     },
     public_message: (p) => {
       if ((p.p_name || "").trim().length < 2 || (p.p_message || "").trim().length < 2) return { ok: false, reason: "missing" };
       db.messages.unshift({ id: uuid(), created_at: now(), name: p.p_name, phone: p.p_phone || "", email: p.p_email || "", message: p.p_message, handled: false });
+      logChange("messages", "insert", [db.messages[0]]);
       save();
       return { ok: true };
     },
@@ -191,9 +193,12 @@
   // ---- Minimal query builder ----
   const PK = { slot_overrides: (r) => r.car_id + "|" + t5(r.slot_time) };
   function from(table) {
-    const q = { filters: [], order: [], op: "select", payload: null, single: false, returning: false };
+    const q = { filters: [], order: [], op: "select", payload: null, single: false, returning: false, limit: null, lt: null };
     const run = () => {
+      if (!db[table]) db[table] = [];
       let rows = db[table];
+      const match0 = (r) => q.filters.every(([c, v]) => r[c] === v || String(r[c]) === String(v));
+      const before = q.op === "update" ? rows.filter(match0).map((r) => ({ ...r })) : null;
       const match = (r) => q.filters.every(([c, v]) => r[c] === v || String(r[c]) === String(v));
       let out;
       if (q.op === "select") out = rows.filter(match);
@@ -207,10 +212,12 @@
       } else if (q.op === "insert") {
         const r = { ...q.payload };
         if (table === "bookings") Object.assign(r, { id: uuid(), ref: "S" + db.seq++, created_at: now(), updated_at: now(), lang: "en", email: "", maps_link: "", ...q.payload });
+        else if (table === "activity_log") Object.assign(r, { id: db.logSeq++, at: now() });
         else if (!r.id) r.id = Math.max(0, ...rows.map((x) => x.id || 0)) + 1;
         if (table === "cars") Object.assign(r, { driver: "", phone: "", active: true, ...q.payload });
         if (table === "areas") Object.assign(r, { car_id: null, lat: null, lng: null, active: true, ...q.payload });
-        rows.push(r); out = [r];
+        if (table === "activity_log") rows.unshift(r); else rows.push(r);
+        out = [r];
       } else if (q.op === "upsert") {
         const k = PK[table](q.payload);
         db[table] = rows = rows.filter((x) => PK[table](x) !== k);
@@ -218,8 +225,10 @@
       } else if (q.op === "delete") {
         out = rows.filter(match); db[table] = rows.filter((r) => !match(r));
       }
-      if (q.op !== "select") save();
+      if (q.op !== "select") { logChange(table, q.op, out, before); save(); }
       for (const [c, asc] of q.order.slice().reverse()) out = out.slice().sort((a, b) => (a[c] > b[c] ? 1 : a[c] < b[c] ? -1 : 0) * (asc ? 1 : -1));
+      if (q.lt) out = out.filter((r) => r[q.lt[0]] < q.lt[1]);
+      if (q.limit) out = out.slice(0, q.limit);
       out = JSON.parse(JSON.stringify(out));
       return { data: q.single ? out[0] ?? null : out, error: null };
     };
@@ -227,6 +236,8 @@
       select() { if (q.op !== "select") q.returning = true; return b; },
       order(c, o) { q.order.push([c, o?.ascending !== false]); return b; },
       eq(c, v) { q.filters.push([c, v]); return b; },
+      lt(c, v) { q.lt = [c, v]; return b; },
+      limit(n) { q.limit = n; return b; },
       single() { q.single = true; return b; },
       update(p) { q.op = "update"; q.payload = p; return b; },
       insert(p) { q.op = "insert"; q.payload = p; return b; },
@@ -240,6 +251,29 @@
     const changes = {};
     for (const k of Object.keys(after)) if (!["updated_at", "updated_by"].includes(k) && JSON.stringify(before[k]) !== JSON.stringify(after[k])) changes[k] = [before[k], after[k]];
     if (Object.keys(changes).length) db.booking_history.push({ id: Date.now(), booking_id: after.id, at: now(), by_name: after.updated_by || "admin", changes });
+  }
+
+  // Mirror of the database's activity log triggers.
+  const ENT = { bookings: "booking", cars: "car", areas: "area", settings: "settings", slot_overrides: "time slot", messages: "message" };
+  function logChange(table, op, rows, before) {
+    const ent = ENT[table];
+    if (!ent) return;
+    const actor = window.__santaActor || "Website";
+    rows.forEach((r, i) => {
+      let changes = r;
+      if (op === "update" || op === "upsert") {
+        const old = before?.[i] || {};
+        changes = {};
+        for (const k of Object.keys(r)) if (!["updated_at", "updated_by"].includes(k) && JSON.stringify(old[k]) !== JSON.stringify(r[k])) changes[k] = [old[k] ?? null, r[k]];
+        if (op === "update" && !Object.keys(changes).length) return;
+        if (op === "upsert") changes = r;
+      }
+      const carNm = (id) => db.cars.find((c) => c.id === id)?.name;
+      const label = ent === "booking" ? `${r.ref} · ${r.name}` : ent === "car" ? r.name : ent === "area" ? r.name_en : ent === "settings" ? "Night settings"
+        : ent === "time slot" ? `${carNm(r.car_id)} at ${String(r.slot_time).slice(0, 5)}` : `Message from ${r.name}`;
+      db.activity_log.unshift({ id: db.logSeq++, at: new Date().toISOString(), actor, action: op === "insert" ? "created" : op === "delete" ? "deleted" : op === "upsert" ? "created" : "changed",
+        entity: ent, entity_id: r.id != null ? String(r.id) : null, label, changes });
+    });
   }
 
   let session = null;

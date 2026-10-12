@@ -7,7 +7,9 @@ window.SANTA_CONFIG = {
   SUPABASE_URL: "https://rbppkcqeomvfgvxmwonh.supabase.co",
   SUPABASE_ANON_KEY: "sb_publishable_htwV1jrwBw_NbMSlx8nCgA_vz8FH4TR",
 
-  // The shared admin login's email (the password is what your team types).
+  // Team logins: a username like "sara" signs in as sara@santa.team.
+  // (Typing a full email also works, e.g. the owner account below.)
+  TEAM_DOMAIN: "santa.team",
   ADMIN_EMAIL: "santa@swefieh-orthodox-scout.com",
 
   // Shown in the header of every page.

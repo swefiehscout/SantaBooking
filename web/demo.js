@@ -3,7 +3,7 @@
 // (localStorage). Any password works on the admin page. Delete nothing; it switches
 // itself off as soon as real keys are in config.js.
 (function () {
-  const KEY = "santa-demo-db-v10";
+  const KEY = "santa-demo-db-v11";
   const AREAS = [
     ["1st Circle", "", 6, 31.9515, 35.9239],
     ["2nd Circle", "", 6, 31.954, 35.918],
@@ -63,6 +63,7 @@
       cars: Array.from({ length: 8 }, (_, i) => ({ id: i + 1, name: `Car ${i + 1}`, driver: "", phone: "", active: true, sort: i + 1, start_time: null, end_time: null })),
       areas: AREAS.map((a, i) => ({ id: i + 1, name_en: a[0], name_ar: a[1], car_id: a[2], lat: a[3], lng: a[4], active: true, sort: a[0] === "Other" ? 99 : /Circle/.test(a[0]) ? parseInt(a[0]) : 10 })),
       slot_overrides: [], bookings: [], booking_history: [], messages: [], activity_log: [], seq: 1001, logSeq: 1,
+      admins: [{ email: "owner@santa.team", name: "Owner (demo)" }, { email: "sara@santa.team", name: "Sara (demo)" }],
     };
     // A few clearly-marked example bookings so the board isn't empty.
     const aid = (n) => db.areas.find((a) => a.name_en === n).id;
@@ -277,7 +278,7 @@
   }
 
   let session = null;
-  try { session = sessionStorage.getItem("santa-demo-session") ? { user: {} } : null; } catch (e) {}
+  try { const em = sessionStorage.getItem("santa-demo-session"); session = em ? { user: { email: em } } : null; } catch (e) {}
   window.SantaDemo = {
     createClient() {
       return {
@@ -289,7 +290,8 @@
         from: (t) => { try { db = JSON.parse(localStorage.getItem(KEY)) || db; } catch (e) {} return from(t); },
         auth: {
           getSession: async () => ({ data: { session } }),
-          signInWithPassword: async () => { session = { user: {} }; try { sessionStorage.setItem("santa-demo-session", "1"); } catch (e) {} return { error: null }; },
+          getUser: async () => ({ data: { user: session?.user || null } }),
+          signInWithPassword: async ({ email }) => { session = { user: { email } }; try { sessionStorage.setItem("santa-demo-session", email); } catch (e) {} return { error: null }; },
           signOut: async () => { session = null; try { sessionStorage.removeItem("santa-demo-session"); } catch (e) {} return { error: null }; },
         },
         channel: () => { const c = { on: () => c, subscribe: () => c }; addEventListener("storage", (e) => e.key === KEY && window.dispatchEvent(new Event("santa-demo-change"))); return c; },

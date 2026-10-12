@@ -710,7 +710,7 @@
     price_note: "donation note", blocked: "blocked", capacity: "visits allowed", handled: "replied", paid: "donation received",
   };
   const HIDE_FIELDS = new Set(["id", "created_at", "updated_at", "updated_by", "lang", "ref", "name_ar"]);
-  const who = (a) => { if (a === "Website") return "Website visitor"; try { return decodeURIComponent(a); } catch (e) { return a; } };
+  const who = (a) => (a === "Website" ? "Website visitor" : a);
   function fieldValue(k, v) {
     if (v == null || v === "") return "—";
     if (k === "car_id" || k === "collected_by") return carName(v);
@@ -744,7 +744,8 @@
         if (r.action === "created") return `sent a message on the Contact page (<b>${esc(c.name || "")}</b>)`;
         if (c.handled) return `marked the ${lbl.toLowerCase()} as ${c.handled[1] ? "replied" : "not replied"}`;
         return `${r.action} the ${lbl.toLowerCase()}`;
-      case "team": return esc(r.label || r.action);
+      case "team": { const t = r.label || r.action; return esc(t.charAt(0).toLowerCase() + t.slice(1)); }
+      case "team member": return r.action === "created" ? `added <b>${lbl}</b> to the team` : r.action === "deleted" ? `removed <b>${lbl}</b> from the team` : `changed the team member <b>${lbl}</b>`;
       default: return `${esc(r.action)} ${esc(r.entity)} ${lbl}`;
     }
   }
@@ -760,7 +761,7 @@
       : r.entity === "message" ? ["phone", "email", "message"] : Object.keys(c).filter((k) => !HIDE_FIELDS.has(k));
     return `<div>${keys.filter((k) => c[k] != null && c[k] !== "").map((k) => `${esc(fieldLabel(k))}: <b>${esc(fieldValue(k, c[k]))}</b>`).join(" · ")}</div>`;
   }
-  const LOG_KINDS = { all: "Everything", booking: "Bookings", "time slot": "Blocked times & visits allowed", car: "Cars", area: "Areas", settings: "Night settings", message: "Messages", team: "Sign-ins, prints & exports" };
+  const LOG_KINDS = { all: "Everything", booking: "Bookings", "time slot": "Blocked times & visits allowed", car: "Cars", area: "Areas", settings: "Night settings", message: "Messages", team: "Sign-ins, prints & exports", "team member": "Team changes" };
   async function loadLog(older) {
     let q = sb.from("activity_log").select("*").order("id", { ascending: false }).limit(500);
     if (older && S.log.length) q = q.lt("id", S.log[S.log.length - 1].id);
@@ -882,9 +883,7 @@
       </tbody></table></div>
       <div><button class="btn" id="add-area">+ Add an area</button></div>
     </div>
-    <div class="panel"><h3>Team password</h3>
-      <p class="muted" style="margin:0">Everyone uses the same password. To change it: Supabase → Authentication → Users → ${esc(cfg.ADMIN_EMAIL)} → Reset password. Then tell the team.</p>
-    </div>`;
+`;
 
     $("save-settings").onclick = async () => {
       const patch = {};
@@ -1183,17 +1182,21 @@
         $("d-history").innerHTML = (data || []).filter((r) => !(Object.keys(r.changes).length === 1 && r.changes.paid)).map((r) =>
           `<div><span class="muted">${esc(dateTime(r.at))} · ${esc(r.by_name)}</span><br>${Object.entries(r.changes).filter(([k]) => k !== "paid")
             .map(([k, [a, z]]) => `${esc(NAMES[k] || k.replace(/_/g, " "))}: ${esc(fmt(k, a))} → <b>${esc(fmt(k, z))}</b>`).join("<br>")}</div>`).join("")
-          + `<div><span class="muted">${esc(dateTime(b.created_at))} · booked ${b.updated_by === "public form" || !b.updated_by ? "on the website" : "by the team"}</span></div>`;
+          + `<div><span class="muted">${esc(dateTime(b.created_at))} · booked</span></div>`;
       });
   }
 
   // ---------- Sign in & start ----------
   async function enter() {
     const { data: ok, error } = await sb.rpc("is_admin");
-    if (error || !ok) { await sb.auth.signOut(); return showLogin("This account isn't set up for the team yet. See README step 4."); }
-    try { S.me = localStorage.getItem("santa-admin-name") || "Team"; } catch (e) { S.me = "Team"; }
-    // Every change this browser makes carries the person's name, so the activity log knows who did it.
-    if (sb.rest?.headers) sb.rest.headers["x-actor"] = encodeURIComponent(S.me);
+    if (error || !ok) { await sb.auth.signOut(); return showLogin("This login isn't on the team list yet. Ask the owner to add it."); }
+    // Who is signed in comes from their own login and the team list; the database stamps changes with it.
+    const { data: sess } = await sb.auth.getSession();
+    const email = (sess?.session?.user?.email || "").toLowerCase();
+    const { data: team } = await sb.from("admins").select("*");
+    S.team = team || [];
+    const mine = S.team.find((t) => String(t.email).toLowerCase() === email);
+    S.me = mine?.name || (email ? email.split("@")[0] : "Team");
     window.__santaActor = S.me;
     document.querySelectorAll(".who").forEach((el) => (el.textContent = "Signed in as " + S.me));
     $("login-view").hidden = true;
@@ -1213,17 +1216,18 @@
     $("login-view").hidden = false;
     $("login-err").textContent = msg || "";
     $("login-err").hidden = !msg;
-    try { $("login-name").value = localStorage.getItem("santa-admin-name") || ""; } catch (e) {}
+    try { $("login-user").value = localStorage.getItem("santa-admin-user") || ""; } catch (e) {}
   }
+  const loginEmail = (u) => (u.includes("@") ? u : `${u}@${cfg.TEAM_DOMAIN || "santa.team"}`).toLowerCase();
   $("login-form").addEventListener("submit", async (e) => {
     e.preventDefault();
-    const name = $("login-name").value.trim();
-    if (!name) return;
+    const user = $("login-user").value.trim();
+    if (!user) return;
     $("login-btn").disabled = true;
-    const { error } = await sb.auth.signInWithPassword({ email: cfg.ADMIN_EMAIL, password: $("login-pass").value });
+    const { error } = await sb.auth.signInWithPassword({ email: loginEmail(user), password: $("login-pass").value });
     $("login-btn").disabled = false;
-    if (error) return showLogin("That password isn't right.");
-    try { localStorage.setItem("santa-admin-name", name); } catch (e) {}
+    if (error) return showLogin("That username or password isn't right.");
+    try { localStorage.setItem("santa-admin-user", user); } catch (e) {}
     $("login-pass").value = "";
     await enter();
     logEvent("signed in", "Signed in");

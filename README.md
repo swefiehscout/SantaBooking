@@ -26,6 +26,23 @@ Open http://localhost:8080
    `insert into admins (email) values ('the-email-from-step-2');`
 5. **Vercel**: import the GitHub repo. No build settings are needed, because `vercel.json` serves the `web` folder.
 
+## Team logins
+
+Everyone on the team has their own login. Nobody can create an account themselves (sign-ups are off in Supabase), and every change is recorded under the person's real name.
+
+Run `supabase/team_accounts.sql` once in the SQL Editor (after `activity_log.sql`) to switch this on.
+
+**Add someone** (owner, in Supabase):
+1. Authentication → Users → Add user → Create new user. Email: `username@santa.team` (for example `sara@santa.team`; it doesn't need to be a real inbox). Choose a password and tick **Auto Confirm User**.
+2. Table Editor → **admins** → Insert row. Email: the same email. Name: their real name, as it should appear in the activity log.
+3. Send them their username (`sara`) and password. They sign in at `/admin`.
+
+**Change a password:** Authentication → Users → the user → set a new password, then send it to them.
+
+**Remove someone:** delete their user in Authentication → Users, and their row in the **admins** table. They're locked out straight away.
+
+The owner account `santa@swefieh-orthodox-scout.com` signs in by typing the full email as the username.
+
 ## How cars get assigned
 
 1. The area's home car gets the booking if it has room at that time.

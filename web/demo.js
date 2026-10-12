@@ -3,7 +3,7 @@
 // (localStorage). Any password works on the admin page. Delete nothing; it switches
 // itself off as soon as real keys are in config.js.
 (function () {
-  const KEY = "santa-demo-db-v11";
+  const KEY = "santa-demo-db-v12";
   const AREAS = [
     ["1st Circle", "", 6, 31.9515, 35.9239],
     ["2nd Circle", "", 6, 31.954, 35.918],
@@ -63,7 +63,7 @@
       cars: Array.from({ length: 8 }, (_, i) => ({ id: i + 1, name: `Car ${i + 1}`, driver: "", phone: "", active: true, sort: i + 1, start_time: null, end_time: null })),
       areas: AREAS.map((a, i) => ({ id: i + 1, name_en: a[0], name_ar: a[1], car_id: a[2], lat: a[3], lng: a[4], active: true, sort: a[0] === "Other" ? 99 : /Circle/.test(a[0]) ? parseInt(a[0]) : 10 })),
       slot_overrides: [], bookings: [], booking_history: [], messages: [], activity_log: [], seq: 1001, logSeq: 1,
-      admins: [{ email: "owner@santa.team", name: "Owner (demo)" }, { email: "sara@santa.team", name: "Sara (demo)" }],
+      admins: [{ email: "owner@santa.team", name: "Owner (demo)", is_owner: true }, { email: "sara@santa.team", name: "Sara (demo)", is_owner: false }],
     };
     // A few clearly-marked example bookings so the board isn't empty.
     const aid = (n) => db.areas.find((a) => a.name_en === n).id;

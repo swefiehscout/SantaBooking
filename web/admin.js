@@ -250,6 +250,7 @@
       .toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })));
     const more = document.querySelector("[data-more]");
     if (more) more.setAttribute("aria-selected", ["routes", "print", "messages", "setup"].includes(S.tab));
+    if (S.tab === "activity" && !S.isOwner) S.tab = "bookings";
     if (S.map && S.tab !== "routes") { S.map.remove(); S.map = null; }
     const focusId = document.activeElement?.id;
     const scroll = document.querySelector(".grid-wrap")?.scrollTop;
@@ -1197,6 +1198,9 @@
     S.team = team || [];
     const mine = S.team.find((t) => String(t.email).toLowerCase() === email);
     S.me = mine?.name || (email ? email.split("@")[0] : "Team");
+    // Only owners see the Activity log (the database also refuses it to everyone else).
+    S.isOwner = !!mine?.is_owner;
+    document.querySelectorAll('[data-tab="activity"]').forEach((el) => (el.hidden = !S.isOwner));
     window.__santaActor = S.me;
     document.querySelectorAll(".who").forEach((el) => (el.textContent = "Signed in as " + S.me));
     $("login-view").hidden = true;
@@ -1238,7 +1242,7 @@
   document.querySelector("[data-more]").onclick = () => modal("More", `<div class="menu">
       <button class="btn" data-m="routes">Route map</button><button class="btn" data-m="print">Print sheets</button>
       <button class="btn" data-m="messages">Messages${S.messages.filter((m) => !m.handled).length ? ` (${S.messages.filter((m) => !m.handled).length} new)` : ""}</button>
-      <button class="btn" data-m="setup">Setup</button><button class="btn" data-m="activity">Activity log</button><button class="btn danger js-out2">Sign out</button></div>`, "", (close) => {
+      <button class="btn" data-m="setup">Setup</button>${S.isOwner ? `<button class="btn" data-m="activity">Activity log</button>` : ""}<button class="btn danger js-out2">Sign out</button></div>`, "", (close) => {
     document.querySelectorAll("[data-m]").forEach((b) => (b.onclick = () => { close(); S.tab = b.dataset.m; render(); scrollTo(0, 0); }));
     document.querySelector(".js-out2").onclick = signOut;
   });

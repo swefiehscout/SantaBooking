@@ -43,6 +43,8 @@ Run `supabase/team_accounts.sql` once in the SQL Editor (after `activity_log.sql
 
 The owner account `santa@swefieh-orthodox-scout.com` signs in by typing the full email as the username.
 
+**Owners:** only owners can see the Activity log. Run `supabase/owner_only_log.sql` once (after `team_accounts.sql`); it makes the `santa@swefieh-orthodox-scout.com` account an owner. To make someone else an owner, tick **is_owner** on their row in Table Editor → admins.
+
 ## How cars get assigned
 
 1. The area's home car gets the booking if it has room at that time.

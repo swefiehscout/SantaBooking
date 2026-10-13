@@ -28,6 +28,9 @@
   const carName = (id) => carById(id)?.name || "No car";
   const areaById = (id) => S.areas.find((a) => a.id === id);
   const areaName = (id) => areaById(id)?.name_en || "—";
+  // An area's own cars: its car, plus an optional second car that shares it.
+  const servesArea = (a, carId) => !!carId && (a.car_id === carId || a.car2_id === carId);
+  const areaCars = (id) => { const a = areaById(id); return a ? [a.car_id, a.car2_id].filter((c, i, l) => c && l.indexOf(c) === i) : []; };
   const bookingById = (id) => S.bookings.find((b) => b.id === id);
   const activeCars = () => S.cars.filter((c) => c.active).sort((a, b) => a.sort - b.sort || a.id - b.id);
   // All timestamps are shown in Jordan time, whatever the viewer's device is set to.
@@ -67,7 +70,7 @@
     return a && a.lat != null ? [a.lat, a.lng] : [null, null];
   }
   function carCentre(carId) {
-    const pts = S.areas.filter((a) => a.car_id === carId && a.lat != null);
+    const pts = S.areas.filter((a) => servesArea(a, carId) && a.lat != null);
     if (!pts.length) return [null, null];
     return [pts.reduce((s, a) => s + a.lat, 0) / pts.length, pts.reduce((s, a) => s + a.lng, 0) / pts.length];
   }
@@ -80,21 +83,23 @@
       .map((b) => km(lat, lng, ...point(b))).filter((d) => d != null);
     return ds.length ? Math.min(...ds) : km(lat, lng, ...carCentre(carId));
   }
-  // The website's rule: the area's own car if it's free. Anything else is for the team to assign.
+  // The website's rule: the area's own car if it's free. With two cars, the one with more room
+  // at that time, then the one with fewer visits that night. Anything else is for the team to assign.
   function pickCar(slot, areaId, ignoreId) {
-    const a = areaById(areaId) || {};
-    if (a.car_id && carById(a.car_id)?.active && freeIn(a.car_id, slot, ignoreId) > 0) return { car: carById(a.car_id), home: true };
-    return null;
+    const night = (id) => S.bookings.filter((b) => b.id !== ignoreId && b.car_id === id && ACTIVE.includes(b.status)).length;
+    const car = areaCars(areaId).map(carById).filter((c) => c?.active && freeIn(c.id, slot, ignoreId) > 0)
+      .sort((x, y) => freeIn(y.id, slot, ignoreId) - freeIn(x.id, slot, ignoreId) || night(x.id) - night(y.id) || x.sort - y.sort || x.id - y.id)[0];
+    return car ? { car, home: true } : null;
   }
   // For the team: the closest places to a wanted time, any car, home car first.
   function options(b, wanted, limit = 4) {
     const [lat, lng] = point(b);
-    const home = areaById(b.area_id)?.car_id;
+    const home = areaCars(b.area_id);
     const pref = toMin(wanted || hhmm(b.preferred_time) || slots()[0]);
     const out = [];
     for (const slot of slots().slice().sort((x, y) => Math.abs(toMin(x) - pref) - Math.abs(toMin(y) - pref))) {
       const best = activeCars().filter((c) => freeIn(c.id, slot, b.id) > 0)
-        .map((c) => ({ car: c, slot, home: c.id === home, d: lat == null ? null : carDistance(c.id, slot, lat, lng, b.id) }))
+        .map((c) => ({ car: c, slot, home: home.includes(c.id), d: lat == null ? null : carDistance(c.id, slot, lat, lng, b.id) }))
         .sort((x, y) => (y.home - x.home) || ((x.d ?? 99) - (y.d ?? 99)))[0];
       if (best) out.push(best);
       if (out.length >= limit) break;
@@ -468,7 +473,7 @@
   // Every free place within two hours of the wanted time, scored: closer in time and distance is better.
   function waitOptions(b) {
     const want = toMin(hhmm(b.preferred_time));
-    const home = areaById(b.area_id)?.car_id;
+    const home = areaCars(b.area_id);
     const out = [];
     for (const slot of slots()) {
       const diff = toMin(slot) - want;
@@ -476,8 +481,8 @@
       for (const c of activeCars()) {
         if (freeIn(c.id, slot, b.id) <= 0) continue;
         const info = distanceInfo(c.id, slot, b);
-        const score = Math.abs(diff) / 30 + (info ? info.d / 2 : 1.5) + (c.id === home ? 0 : 0.5);
-        out.push({ car: c, slot, diff, home: c.id === home, info, score });
+        const score = Math.abs(diff) / 30 + (info ? info.d / 2 : 1.5) + (home.includes(c.id) ? 0 : 0.5);
+        out.push({ car: c, slot, diff, home: home.includes(c.id), info, score });
       }
     }
     return out.sort((x, y) => x.score - y.score).slice(0, 5);
@@ -512,10 +517,10 @@
   }
   function waitCard(b) {
     const opts = waitOptions(b);
-    const home = areaById(b.area_id)?.car_id;
+    const home = areaCars(b.area_id);
     return `<div class="wcard">
       <div class="wtop">
-        <div><b>${esc(b.name)}</b><div class="muted">${esc(areaName(b.area_id))}${home ? ` · their area's car is ${esc(carName(home))}` : ""}${b.lat == null ? " · no map pin" : ""}</div></div>
+        <div><b>${esc(b.name)}</b><div class="muted">${esc(areaName(b.area_id))}${home.length ? ` · their area's car${home.length > 1 ? "s are" : " is"} ${esc(home.map(carName).join(" & "))}` : ""}${b.lat == null ? " · no map pin" : ""}</div></div>
         <div class="row"><a class="btn small" href="tel:${esc(b.phone)}">Call ${esc(b.phone)}</a>
           ${waNumber(b.phone) ? `<a class="btn small" target="_blank" rel="noopener" href="https://wa.me/${waNumber(b.phone)}">WhatsApp</a>` : ""}
           <button class="btn small" data-open="${b.id}">Details</button></div>
@@ -717,7 +722,7 @@
 
   // ===== Activity log (read-only) =====
   const LOG_FIELDS = {
-    car_id: "car", slot_time: "time", area_id: "area", preferred_time: "wanted time", payment_method: "donation method",
+    car_id: "car", car2_id: "second car", slot_time: "time", area_id: "area", preferred_time: "wanted time", payment_method: "donation method",
     amount: "donation (JD)", donation_method: "gave by", collected_by: "collected by", admin_notes: "team notes",
     gift_message: "message for Santa", address_details: "address", maps_link: "Google Maps link", lat: "pin latitude", lng: "pin longitude",
     name_en: "name", name_ar: "Arabic name", start_time: "starts", end_time: "ends", sort: "column position", active: "running",
@@ -729,7 +734,7 @@
   const who = (a) => (a === "Website" ? "Website visitor" : a);
   function fieldValue(k, v) {
     if (v == null || v === "") return "—";
-    if (k === "car_id" || k === "collected_by") return carName(v);
+    if (k === "car_id" || k === "car2_id" || k === "collected_by") return carName(v);
     if (k === "area_id") return areaName(v);
     if (k === "status") return STATUS[v] || v;
     if (/_time$/.test(k)) return shortTime(hhmm(v));
@@ -883,16 +888,17 @@
         <td style="width:120px"><input type="time" data-car="${c.id}" data-k="end_time" value="${hhmm(c.end_time)}" title="Leave empty to use the night's hours"></td>
         <td style="width:80px"><input type="number" data-car="${c.id}" data-k="sort" value="${c.sort}"></td>
         <td><input type="checkbox" data-car="${c.id}" data-k="active" ${c.active ? "checked" : ""}></td>
-        <td class="muted">${esc(S.areas.filter((a) => a.car_id === c.id).map((a) => a.name_en).join(", ") || "—")}</td></tr>`).join("")}
+        <td class="muted">${esc(S.areas.filter((a) => servesArea(a, c.id)).map((a) => a.name_en).join(", ") || "—")}</td></tr>`).join("")}
       </tbody></table></div>
       <div><button class="btn" id="add-car">+ Add a car</button></div>
     </div>
     <div class="panel"><h3>Areas</h3>
-      <p class="muted" style="margin:0">Families can only book their area's car. If it's full at the time they want, they can join the waitlist and the team places them from there. The coordinates are used when a family doesn't drop a pin.</p>
-      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Area</th><th>Its car</th><th>Lat</th><th>Lng</th><th>Shown</th></tr></thead><tbody>
+      <p class="muted" style="margin:0">Families can only book their area's car. Give a busy area a second car to share it: the website then books whichever of the two has more room at that time (if both have the same, the one with fewer visits that night). If they're full at the time they want, they can join the waitlist and the team places them from there. The coordinates are used when a family doesn't drop a pin.</p>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Area</th><th>Its car</th><th>Second car</th><th>Lat</th><th>Lng</th><th>Shown</th></tr></thead><tbody>
       ${S.areas.map((a) => `<tr>
         <td><input data-area="${a.id}" data-k="name_en" value="${esc(a.name_en)}"></td>
         <td><select data-area="${a.id}" data-k="car_id">${carOpts(a.car_id)}</select></td>
+        <td><select data-area="${a.id}" data-k="car2_id">${carOpts(a.car2_id)}</select></td>
         <td style="width:110px"><input type="number" step="0.0001" data-area="${a.id}" data-k="lat" value="${a.lat ?? ""}"></td>
         <td style="width:110px"><input type="number" step="0.0001" data-area="${a.id}" data-k="lng" value="${a.lng ?? ""}"></td>
         <td><input type="checkbox" data-area="${a.id}" data-k="active" ${a.active ? "checked" : ""}></td></tr>`).join("")}
@@ -914,7 +920,7 @@
       render();
     };
     const cast = (el) => el.type === "checkbox" ? el.checked : el.type === "number" ? (el.value === "" ? null : Number(el.value)) : el.type === "time" ? (el.value || null)
-      : el.dataset.k === "car_id" ? (el.value ? Number(el.value) : null) : el.value;
+      : el.dataset.k === "car_id" || el.dataset.k === "car2_id" ? (el.value ? Number(el.value) : null) : el.value;
     $("main").querySelectorAll("[data-car]").forEach((el) => (el.onchange = async () => {
       const id = Number(el.dataset.car), v = cast(el);
       const { error } = await sb.from("cars").update({ [el.dataset.k]: v }).eq("id", id);
@@ -929,7 +935,7 @@
       if (error) return toast("Not saved: " + error.message);
       areaById(id)[el.dataset.k] = v;
       toast("Saved");
-      if (el.dataset.k === "car_id") render();
+      if (el.dataset.k === "car_id" || el.dataset.k === "car2_id") render();
     }));
     $("add-car").onclick = async () => {
       const n = S.cars.length + 1;

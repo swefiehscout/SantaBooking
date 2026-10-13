@@ -62,7 +62,7 @@
         default_capacity: 1, cutoff_hours: 48, borrow_km: 5, booking_open: true, contact_phone: "0796441145",
         cliq_alias: "", price_note: "" }],
       cars: Array.from({ length: 8 }, (_, i) => ({ id: i + 1, name: `Car ${i + 1}`, driver: "", phone: "", active: true, sort: i + 1, start_time: null, end_time: null })),
-      areas: AREAS.map((a, i) => ({ id: i + 1, name_en: a[0], name_ar: a[1], car_id: a[2], lat: a[3], lng: a[4], active: true, sort: a[0] === "Other" ? 99 : /Circle/.test(a[0]) ? parseInt(a[0]) : 10 })),
+      areas: AREAS.map((a, i) => ({ id: i + 1, name_en: a[0], name_ar: a[1], car_id: a[2], car2_id: null, lat: a[3], lng: a[4], active: true, sort: a[0] === "Other" ? 99 : /Circle/.test(a[0]) ? parseInt(a[0]) : 10 })),
       slot_overrides: [], bookings: [], booking_history: [], messages: [], activity_log: [], seq: 1001, logSeq: 1,
       admins: [{ email: "owner@santa.team", name: "Owner (demo)", is_owner: true }, { email: "sara@santa.team", name: "Sara (demo)", is_owner: false }],
     };
@@ -145,10 +145,15 @@
     const used = db.bookings.filter((b) => b.car_id === car && t5(b.slot_time) === slot && ACTIVE.includes(b.status)).length;
     return Math.max(0, (o?.capacity ?? S().default_capacity) - used);
   }
-  // The website only books an area's own car (mirrors home_car in schema.sql).
+  // The website only books an area's own cars (mirrors home_car in schema.sql):
+  // the one with more room at that time, then the one with fewer visits that night.
   function homeCar(slot, areaId) {
     const a = db.areas.find((x) => x.id === areaId);
-    return a?.car_id && carFree(a.car_id, slot) > 0 ? a.car_id : null;
+    if (!a) return null;
+    const night = (id) => db.bookings.filter((b) => b.car_id === id && ACTIVE.includes(b.status)).length;
+    const sort = (id) => db.cars.find((c) => c.id === id)?.sort ?? 0;
+    return [a.car_id, a.car2_id].filter((c) => c && carFree(c, slot) > 0)
+      .sort((x, y) => carFree(y, slot) - carFree(x, slot) || night(x) - night(y) || sort(x) - sort(y) || x - y)[0] ?? null;
   }
   const isOpen = () => S().booking_open &&
     Date.now() < new Date(`${S().event_date}T${t5(S().start_time)}:00+03:00`).getTime() - S().cutoff_hours * 3600e3;
@@ -233,7 +238,7 @@
         else if (table === "activity_log") Object.assign(r, { id: db.logSeq++, at: now() });
         else if (!r.id) r.id = Math.max(0, ...rows.map((x) => x.id || 0)) + 1;
         if (table === "cars") Object.assign(r, { driver: "", phone: "", active: true, ...q.payload });
-        if (table === "areas") Object.assign(r, { car_id: null, lat: null, lng: null, active: true, ...q.payload });
+        if (table === "areas") Object.assign(r, { car_id: null, car2_id: null, lat: null, lng: null, active: true, ...q.payload });
         if (table === "activity_log") rows.unshift(r); else rows.push(r);
         out = [r];
       } else if (q.op === "upsert") {

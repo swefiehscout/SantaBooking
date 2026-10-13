@@ -38,6 +38,7 @@ create table areas (
   name_en text    not null,
   name_ar text    not null default '',
   car_id  int     references cars(id) on delete set null,   -- home car for this area
+  car2_id int     references cars(id) on delete set null,   -- optional second car sharing it
   lat     double precision,
   lng     double precision,
   active  boolean not null default true,
@@ -186,13 +187,13 @@ language sql stable security definer set search_path = public as $$
   ),
   zone as (
     select km(p_lat, p_lng, avg(lat), avg(lng)) d
-    from areas where car_id = p_car and lat is not null
+    from areas where p_car in (car_id, car2_id) and lat is not null
   )
   select coalesce((select min(d) from near_stops), (select d from zone));
 $$;
 
 -- Choose a car for a booking, or null if none fits. (Used for the team's suggestions; the website uses home_car.)
--- 1) the area's home car if it has room,
+-- 1) the area's own car(s) if one has room,
 -- 2) else the closest other car with room, within borrow_km.
 create or replace function pick_car(p_slot time, p_area int,
                                     p_lat double precision, p_lng double precision)
@@ -200,17 +201,19 @@ returns int
 language plpgsql stable security definer set search_path = public as $$
 declare
   v_home int;
+  v_home2 int;
   v_lat double precision := p_lat;
   v_lng double precision := p_lng;
   v_borrow numeric;
   v_car int;
 begin
-  select car_id, coalesce(v_lat, lat), coalesce(v_lng, lng)
-    into v_home, v_lat, v_lng from areas where id = p_area;
+  select car_id, car2_id, coalesce(v_lat, lat), coalesce(v_lng, lng)
+    into v_home, v_home2, v_lat, v_lng from areas where id = p_area;
   select borrow_km into v_borrow from settings where id = 1;
 
-  if v_home is not null and car_free(v_home, p_slot) > 0 then
-    return v_home;
+  v_car := home_car(p_slot, p_area);
+  if v_car is not null then
+    return v_car;
   end if;
 
   if v_lat is null then
@@ -224,7 +227,7 @@ begin
   end if;
 
   select c.id into v_car from cars c
-  where c.active and c.id is distinct from v_home
+  where c.active and c.id is distinct from v_home and c.id is distinct from v_home2
     and car_free(c.id, p_slot) > 0
     and coalesce(car_distance(c.id, p_slot, v_lat, v_lng), 0) <= v_borrow
   order by coalesce(car_distance(c.id, p_slot, v_lat, v_lng), 999), c.sort, c.id
@@ -233,11 +236,17 @@ begin
 end;
 $$;
 
--- The website only books an area's own car, so busy areas can't take other areas' places.
--- Anything else goes to the waitlist, and the team assigns another car from there.
+-- The website only books an area's own cars, so busy areas can't take other areas' places.
+-- With two cars: the one with more room at that time, then the one with fewer visits that night.
 create or replace function home_car(p_slot time, p_area int) returns int
 language sql stable security definer set search_path = public as $$
-  select a.car_id from areas a where a.id = p_area and a.car_id is not null and car_free(a.car_id, p_slot) > 0;
+  select c.id
+  from areas a join cars c on c.id in (a.car_id, a.car2_id)
+  where a.id = p_area and car_free(c.id, p_slot) > 0
+  order by car_free(c.id, p_slot) desc,
+           (select count(*) from bookings b where b.car_id = c.id and b.status in ('new','confirmed','done')),
+           c.sort, c.id
+  limit 1;
 $$;
 
 create or replace function bookings_open() returns boolean

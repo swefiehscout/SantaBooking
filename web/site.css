@@ -142,6 +142,7 @@ a { color: inherit; }
 /* ---------- Buttons ---------- */
 .btn-gold, .submit {
   display: inline-flex; align-items: center; justify-content: center; gap: 12px; cursor: pointer; text-decoration: none;
+  text-align: center; line-height: 1.4;
   border: 0; border-radius: 999px; padding: 17px 40px;
   font: 700 14px var(--font-display); letter-spacing: .2em; text-transform: uppercase; color: var(--velvet-deep);
   background: linear-gradient(135deg, #f6e3a1 0%, #d4ad57 38%, #f3dc92 62%, #b98d38 100%);
@@ -333,6 +334,6 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--g
   border-block: 1px solid rgba(201,162,78,.45);
   background: radial-gradient(ellipse at center, rgba(241,217,142,.10), transparent 70%);
 }
-.cta-frame .note { font: italic 19px var(--font-script); color: var(--on-velvet-muted); margin: 0; }
+.cta-frame .note { font: italic 19px var(--font-script); color: var(--on-velvet-muted); margin: 0; text-align: center; }
 @media (max-width: 520px) { .btn-gold.big { font-size: 15px; letter-spacing: .16em; padding: 20px 30px; } }
 @media (prefers-reduced-motion: reduce) { .btn-gold.big { animation: none; } }
